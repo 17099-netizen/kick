@@ -86,7 +86,7 @@ kick_access_token = ""
 kick_broadcaster_user_id = None
 
 # ============================================================
-# SLIDE IMAGES (hardcoded URLs from user)
+# SLIDE IMAGES
 # ============================================================
 
 SLIDE_IMAGE_URLS = [
@@ -409,7 +409,7 @@ def audio_to_pcm(audio_bytes):
 # ============================================================
 
 def ensure_slide_images():
-    """ดาวน์โหลดรูปภาพจาก URL ที่กำหนด ถ้ายังไม่มีในเครื่อง"""
+    """ดาวน์โหลดรูปภาพและปรับขนาดให้เป็น 1280x720 (fit)"""
     for idx, url in enumerate(SLIDE_IMAGE_URLS):
         path = SLIDE_PATHS[idx]
         if not os.path.exists(path):
@@ -417,16 +417,28 @@ def ensure_slide_images():
                 print(f"Downloading slide image {idx+1} from {url}")
                 resp = requests.get(url, timeout=30)
                 resp.raise_for_status()
-                with open(path, "wb") as f:
+                # เก็บไฟล์ชั่วคราว
+                temp_path = path + ".tmp"
+                with open(temp_path, "wb") as f:
                     f.write(resp.content)
-                print(f"Saved to {path}")
+                # ปรับขนาดด้วย ffmpeg (ลดภาระตอน live)
+                subprocess.run(
+                    ["ffmpeg", "-i", temp_path, "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2", "-frames:v", "1", path],
+                    check=True,
+                    capture_output=True,
+                )
+                os.remove(temp_path)
+                print(f"Scaled and saved to {path}")
             except Exception as e:
-                print(f"Failed to download slide {idx+1}: {e}")
-                # ใช้รูปสีดำสำรอง
-                subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=1", "-frames:v", "1", path], check=False)
+                print(f"Failed to process slide {idx+1}: {e}")
+                # สร้างรูปสีดำทดแทน
+                subprocess.run(
+                    ["ffmpeg", "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=1", "-frames:v", "1", path],
+                    check=False,
+                )
 
 # ============================================================
-# FFMPEG LIVE
+# FFMPEG LIVE (แก้ไขให้ใช้ -re และ -loop 1)
 # ============================================================
 
 FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
@@ -459,14 +471,9 @@ def _drain_ffmpeg_stderr(process):
     except Exception as exc:
         _append_ffmpeg_log("FFmpeg stderr reader error: " + repr(exc))
 
-# ============================================================
-# START FFMPEG STREAM (WITH SLIDESHOW)
-# ============================================================
-
 def start_ffmpeg_stream():
     global ffmpeg_process
 
-    # ตรวจสอบและดาวน์โหลดรูปสไลด์
     ensure_slide_images()
 
     credentials = get_stream_credentials()
@@ -479,32 +486,44 @@ def start_ffmpeg_stream():
 
     print("KICK RTMPS:", credentials["stream_url"])
 
-    # กำหนด duration ของแต่ละสไลด์ (เป็นวินาที)
-    SLIDE_DURATION = 10   # 10 วินาทีต่อภาพ
+    # พารามิเตอร์สไลด์
+    SLIDE_DURATION = 10   # วินาทีต่อภาพ
     FPS = 30
     FRAMES_PER_SLIDE = SLIDE_DURATION * FPS
 
-    # สร้าง filter complex สำหรับสไลด์โชว์แบบวนลูป (ไม่มีการเปลี่ยนผ่าน)
-    filter_complex = (
-        f"movie={SLIDE_PATHS[0]}:loop=0,setpts=N/FRAME_RATE/TB,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,loop={FRAMES_PER_SLIDE}:1:0[img1];"
-        f"movie={SLIDE_PATHS[1]}:loop=0,setpts=N/FRAME_RATE/TB,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,loop={FRAMES_PER_SLIDE}:1:0[img2];"
-        "[img1][img2]concat=n=2:v=1:a=0,loop=-1:size=2[bg]"
-    )
-
+    # ใช้ -re เพื่อควบคุมความเร็วตามเวลาจริง และ -loop 1 เพื่อวนรูป
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel", "warning",
+
+        # Video input 1
+        "-re",
+        "-loop", "1",
+        "-i", SLIDE_PATHS[0],
+
+        # Video input 2
+        "-re",
+        "-loop", "1",
+        "-i", SLIDE_PATHS[1],
+
         # Audio input (PCM from Python)
         "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-i", "pipe:0",
-        # Video generated from filter complex
-        "-filter_complex", filter_complex,
+
+        # Filter complex: แก้ไข timestamp และ loop แต่ละรูป แล้ว concat
+        "-filter_complex",
+        (
+            f"[0:v]setpts=PTS,loop={FRAMES_PER_SLIDE}:1:0[img1];"
+            f"[1:v]setpts=PTS,loop={FRAMES_PER_SLIDE}:1:0[img2];"
+            f"[img1][img2]concat=n=2:v=1:a=0,loop=-1:size=2[bg]"
+        ),
+
         "-map", "[bg]",
-        "-map", "0:a",
-        # H.264 encoding
+        "-map", "2:a",
+
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-tune", "zerolatency",
@@ -516,13 +535,14 @@ def start_ffmpeg_stream():
         "-b:v", "4500k",
         "-maxrate", "4500k",
         "-bufsize", "9000k",
-        # Audio encoding
+
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "48000",
         "-ac", "2",
-        # RTMP output
+
         "-rtmp_live", "live",
+        "-rtmp_buffer", "1000",
         "-flvflags", "no_duration_filesize",
         "-f", "flv",
         target,
@@ -539,7 +559,7 @@ def start_ffmpeg_stream():
         except Exception:
             pass
 
-    print("Starting FFmpeg -> KICK with slideshow")
+    print("Starting FFmpeg -> KICK with slideshow (real-time)")
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
@@ -552,6 +572,12 @@ def start_ffmpeg_stream():
         ffmpeg_process = process
 
     threading.Thread(target=_drain_ffmpeg_stderr, args=(process,), daemon=True, name="ffmpeg-stderr").start()
+
+    # ส่งเสียงเงียบทันทีเพื่อให้ KICK เห็นสตรีม
+    silence = b"\x00\x00" * 2 * 4800   # 100ms
+    time.sleep(1)
+    write_pcm(silence)
+
     return process
 
 def write_pcm(pcm):
@@ -792,7 +818,8 @@ def api_start():
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
     start_background_workers()
-    time.sleep(8)
+    # รอให้สตรีมเริ่มต้นและส่งข้อมูลแรก
+    time.sleep(5)
     if process.poll() is not None:
         stderr = ""
         try:
@@ -847,7 +874,7 @@ def get_detailed_status():
         "tts_configured": bool(TTS_URL),
         "givedonate_configured": bool(GIVEDONATE_TOKEN),
         "webhook_subscription": sub_status,
-        "chat_seen_count": 0,  # เราไม่ได้ใช้ chat_seen_ids ในเวอร์ชันนี้แล้ว
+        "chat_seen_count": 0,
         "kick_broadcaster_user_id": kick_broadcaster_user_id,
         "webhook_url": KICK_WEBHOOK_URL,
     }
@@ -1050,6 +1077,7 @@ def logout():
 # ============================================================
 
 if __name__ == "__main__":
+    # เริ่มต้น background workers (ยกเว้น speech worker ที่เริ่มเมื่อ live เริ่ม)
     start_background_workers()
     port = int(os.getenv("PORT", "10000"))
     app.run(host="0.0.0.0", port=port, debug=False)
