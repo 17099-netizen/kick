@@ -391,7 +391,7 @@ def audio_to_pcm(audio_bytes):
     return stdout
 
 # ============================================================
-# FFMPEG LIVE (กลับไปใช้พื้นหลัง + ข้อความ เพื่อความเสถียร)
+# FFMPEG LIVE (แก้ไขให้เสถียร)
 # ============================================================
 
 FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
@@ -437,12 +437,13 @@ def start_ffmpeg_stream():
 
     print("KICK RTMPS:", credentials["stream_url"])
 
+    # ใช้ -re เพื่อส่งตามเวลาจริง, -loglevel debug เพื่อดูรายละเอียด
     command = [
         "ffmpeg",
         "-hide_banner",
-        "-loglevel", "warning",
+        "-loglevel", "debug",   # เปลี่ยนเป็น debug เพื่อดู error จริง
 
-        # วิดีโอ: พื้นหลังสีดำ + ข้อความ
+        # วิดีโอ: พื้นหลังสี + ข้อความ
         "-re",
         "-f", "lavfi",
         "-i",
@@ -484,6 +485,9 @@ def start_ffmpeg_stream():
         "-ar", "48000",
         "-ac", "2",
 
+        # เพิ่ม timeout และ buffer เพื่อให้เชื่อมต่อได้ดีขึ้น
+        "-timeout", "10",
+        "-rtmp_buffer", "5000",
         "-rtmp_live", "live",
         "-flvflags", "no_duration_filesize",
         "-f", "flv",
@@ -753,8 +757,13 @@ def api_start():
         process = start_ffmpeg_stream()
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
     start_background_workers()
+
+    # รอให้ process เริ่มทำงานและส่งข้อมูลแรก
     time.sleep(5)
+
+    # ตรวจสอบว่า process ยังทำงานอยู่หรือไม่
     if process.poll() is not None:
         stderr = ""
         try:
@@ -763,7 +772,14 @@ def api_start():
             pass
         with ffmpeg_lock:
             ffmpeg_process = None
-        return jsonify({"ok": False, "error": "FFmpeg หยุดทำงาน", "ffmpeg": stderr[-6000:]}), 502
+        # ส่ง error พร้อม log ล่าสุด
+        return jsonify({
+            "ok": False,
+            "error": "FFmpeg หยุดทำงาน",
+            "ffmpeg": stderr[-6000:],
+            "log_path": FFMPEG_LOG_PATH
+        }), 502
+
     return jsonify({"ok": True, "message": "เริ่ม AI Live แล้ว"})
 
 @app.route("/api/stop", methods=["POST"])
