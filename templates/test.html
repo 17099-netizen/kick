@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8">
+    <title>Test Panel</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background: #1a1a1a; color: #eee; }
+        .navbar { background: #333; padding: 10px; display: flex; gap: 15px; }
+        .navbar a { color: #eee; text-decoration: none; padding: 8px 12px; border-radius: 4px; }
+        .navbar a:hover { background: #555; }
+        .container { max-width: 900px; margin: 20px auto; }
+        .card { background: #2a2a2a; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #45a049; }
+        input, textarea { width: 100%; padding: 8px; margin: 8px 0; border-radius: 4px; border: 1px solid #555; background: #333; color: #eee; }
+        .result-box { background: #111; padding: 10px; border-radius: 4px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/test">Test</a>
+        <a href="/status">Status</a>
+        <a href="/logout" style="margin-left:auto;">Logout</a>
+    </div>
+
+    <div class="container">
+        <h1>Test Panel</h1>
+
+        <div class="card">
+            <h2>🧠 Mistral AI</h2>
+            <textarea id="mistralInput" rows="3">ทักทายผู้ชมแบบสั้น ๆ</textarea>
+            <button onclick="testMistral()">ทดสอบ</button>
+            <div id="mistralResult" class="result-box">รอผล...</div>
+        </div>
+
+        <div class="card">
+            <h2>🔊 TTS</h2>
+            <input type="text" id="ttsInput" value="สวัสดีครับทุกคน">
+            <button onclick="testTTS()">ทดสอบ TTS</button>
+            <div id="ttsResult" class="result-box">รอผล...</div>
+        </div>
+
+        <div class="card">
+            <h2>🎤 AI Speak (ต้องเปิด Live)</h2>
+            <input type="text" id="speakInput" placeholder="ข้อความที่จะพูด">
+            <button onclick="testSpeak()">พูด</button>
+            <div id="speakResult" class="result-box">รอผล...</div>
+        </div>
+
+        <div class="card">
+            <h2>📡 KICK Webhook Subscription</h2>
+            <button onclick="testSubscribe()">Subscribe ใหม่</button>
+            <button onclick="testSubscriptions()">ดู Subscription</button>
+            <div id="subscribeResult" class="result-box">รอผล...</div>
+        </div>
+
+        <div class="card">
+            <h2>▶️ Start / Stop Live</h2>
+            <button onclick="testStart()">Start Live</button>
+            <button onclick="testStop()">Stop Live</button>
+            <div id="liveResult" class="result-box">รอผล...</div>
+        </div>
+    </div>
+
+    <script>
+        function showResult(elementId, data) {
+            document.getElementById(elementId).textContent = JSON.stringify(data, null, 2);
+        }
+
+        async function testMistral() {
+            const text = document.getElementById('mistralInput').value;
+            const res = await fetch('/api/test/mistral', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            const data = await res.json();
+            showResult('mistralResult', data);
+        }
+
+        async function testTTS() {
+            const text = document.getElementById('ttsInput').value;
+            const res = await fetch(`/api/test/tts?text=${encodeURIComponent(text)}`);
+            const data = await res.json();
+            showResult('ttsResult', data);
+        }
+
+        async function testSpeak() {
+            const text = document.getElementById('speakInput').value;
+            if (!text) { alert('กรุณาพิมพ์ข้อความ'); return; }
+            const res = await fetch('/api/ai/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            const data = await res.json();
+            showResult('speakResult', data);
+        }
+
+        async function testSubscribe() {
+            const res = await fetch('/api/kick/subscribe', { method: 'POST' });
+            const data = await res.json();
+            showResult('subscribeResult', data);
+        }
+
+        async function testSubscriptions() {
+            const res = await fetch('/api/kick/subscriptions');
+            const data = await res.json();
+            showResult('subscribeResult', data);
+        }
+
+        async function testStart() {
+            const res = await fetch('/api/start', { method: 'POST' });
+            const data = await res.json();
+            showResult('liveResult', data);
+        }
+
+        async function testStop() {
+            const res = await fetch('/api/stop', { method: 'POST' });
+            const data = await res.json();
+            showResult('liveResult', data);
+        }
+    </script>
+</body>
+</html>
