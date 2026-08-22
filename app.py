@@ -422,6 +422,7 @@ def subscribe_kick_chat():
         broadcaster_id
     )
 
+    # ✅ แก้ไข: เพิ่ม webhook_url ใน payload ตามที่ KICK ต้องการ
     payload = {
         "broadcaster_user_id":
             kick_broadcaster_user_id,
@@ -437,6 +438,9 @@ def subscribe_kick_chat():
 
         "method":
             "webhook",
+
+        "webhook_url":           # <--- บรรทัดนี้สำคัญ
+            KICK_WEBHOOK_URL,
     }
 
     result = kick_json_request(
