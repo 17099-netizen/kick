@@ -1,70 +1,109 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>KICK Direct Live</title>
-  <link rel="stylesheet" href="/static/app.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AI KICK Live</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background:
+                radial-gradient(
+                    circle at top,
+                    #24412f,
+                    #0b0f0c 55%
+                );
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 480px;
+            background: rgba(20, 25, 22, .95);
+            border: 1px solid #34463b;
+            border-radius: 24px;
+            padding: 35px;
+            text-align: center;
+            box-shadow:
+                0 25px 80px rgba(0,0,0,.5);
+        }
+
+        h1 {
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #aeb8b1;
+            line-height: 1.6;
+        }
+
+        .kick {
+            color: #53ff9d;
+        }
+
+        .login {
+            display: block;
+            margin-top: 28px;
+            padding: 16px;
+            background: #53ff9d;
+            color: #07100b;
+            text-decoration: none;
+            border-radius: 14px;
+            font-weight: bold;
+        }
+
+        .error {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            background: #451b1b;
+            color: #ffb1b1;
+            word-break: break-word;
+        }
+    </style>
 </head>
+
 <body>
-  <main class="wrap">
-    <header class="hero">
-      <div>
-        <div class="eyebrow">KICK DIRECT LIVE</div>
-        <h1>Live จากระบบของเราเอง</h1>
-        <p>ต้นแบบ Phase 1: Login KICK → รับสิทธิ์ช่อง → ส่งวิดีโอ/เสียงผ่าน RTMPS โดยไม่ใช้ OBS</p>
-      </div>
-      {% if connected %}
-      <a class="btn secondary" href="/logout">ออกจากระบบ</a>
-      {% endif %}
-    </header>
 
-    <section class="card">
-      {% if not connected %}
-      <h2>เชื่อมต่อบัญชี KICK</h2>
-      <p>ระบบจะใช้ OAuth + PKCE และขอเฉพาะสิทธิ์ที่จำเป็นใน Phase นี้</p>
-      <a class="btn primary" href="/login">เข้าสู่ระบบด้วย KICK</a>
-      {% else %}
-      <div class="status-row">
-        <div>
-          <span class="dot" id="connectionDot"></span>
-          <strong id="connectionLabel">เชื่อมต่อแล้ว</strong>
-        </div>
-        <span class="pill" id="livePill">OFFLINE</span>
-      </div>
+<div class="card">
 
-      <div class="grid">
-        <div class="panel">
-          <h3>บัญชี</h3>
-          <div class="kv"><span>Username</span><strong id="username">กำลังโหลด...</strong></div>
-          <div class="kv"><span>Channel</span><strong id="channel">กำลังโหลด...</strong></div>
-        </div>
-        <div class="panel">
-          <h3>Live Control</h3>
-          <p class="muted">กดเริ่มเพื่อให้ server สร้างสัญญาณทดสอบและส่งตรงไป KICK</p>
-          <div class="actions">
-            <button id="startBtn" class="btn primary">START LIVE</button>
-            <button id="stopBtn" class="btn danger">STOP LIVE</button>
-          </div>
-          <div class="message" id="message">พร้อมใช้งาน</div>
-        </div>
-      </div>
+    <h1>
+        AI <span class="kick">KICK</span> Live
+    </h1>
 
-      <div class="panel verify">
-        <h3>ตรวจสอบเส้นทาง</h3>
-        <p class="muted">เมื่อ START สำเร็จ ให้เปิดหน้า Channel ของ KICK แล้วดูสถานะ LIVE และภาพจริง</p>
-        <div class="kv"><span>Encoder process</span><strong id="processStatus">-</strong></div>
-        <div class="kv"><span>Started</span><strong id="startedAt">-</strong></div>
-        <div class="error" id="errorBox"></div>
-      </div>
-      {% endif %}
-    </section>
+    <p>
+        ระบบควบคุม Live Stream
+        และ AI แบบ Real-Time
+    </p>
 
-    <footer>
-      <span>Phase 1: Direct RTMPS</span>
-      <span>AI / TTS / Chat / Donate จะเสียบใน Phase ถัดไป</span>
-    </footer>
-  </main>
-  <script src="/static/app.js"></script>
+    <a
+        class="login"
+        href="/login"
+    >
+        เข้าสู่ระบบด้วย KICK
+    </a>
+
+    {% if error %}
+
+    <div class="error">
+        {{ error }}
+    </div>
+
+    {% endif %}
+
+</div>
+
 </body>
 </html>
