@@ -13,7 +13,6 @@ from flask import (
     jsonify,
     redirect,
     render_template,
-    request,
     session,
 )
 
@@ -53,22 +52,11 @@ KICK_REDIRECT_URI = os.getenv(
     "https://kick-crka.onrender.com/callback",
 ).strip()
 
-KICK_AUTH_URL = (
-    "https://id.kick.com/oauth/authorize"
-)
+KICK_AUTH_URL = "https://id.kick.com/oauth/authorize"
+KICK_TOKEN_URL = "https://id.kick.com/oauth/token"
+KICK_API_BASE = "https://api.kick.com/public/v1"
 
-KICK_TOKEN_URL = (
-    "https://id.kick.com/oauth/token"
-)
-
-KICK_INTROSPECT_URL = (
-    "https://id.kick.com/oauth/token/introspect"
-)
-
-KICK_API_BASE = (
-    "https://api.kick.com/public/v1"
-)
-
+# KICK default ingest URL
 KICK_STREAM_URL = os.getenv(
     "KICK_STREAM_URL",
     "rtmps://fa723fc1b171.global-contribute.live-video.net:443/app",
@@ -89,51 +77,45 @@ ffmpeg_lock = threading.Lock()
 # ============================================================
 
 def redact(value):
-
-    sensitive = [
+    sensitive = {
         "access_token",
         "refresh_token",
         "client_secret",
         "authorization",
-        "token",
         "stream_key",
         "streamKey",
-    ]
+    }
 
     if isinstance(value, dict):
-
-        output = {}
+        result = {}
 
         for key, item in value.items():
 
-            if str(key).lower() in [
-                x.lower()
-                for x in sensitive
-            ]:
+            if str(key).lower() in {
+                x.lower() for x in sensitive
+            }:
 
-                if key in [
+                if str(key).lower() in {
                     "stream_key",
-                    "streamKey",
-                ]:
-
-                    output[key] = (
+                    "streamkey",
+                }:
+                    result[key] = (
                         "[REDACTED: key exists]"
                         if item
                         else ""
                     )
-
                 else:
-                    output[key] = "[REDACTED]"
+                    result[key] = "[REDACTED]"
 
             else:
-                output[key] = redact(item)
+                result[key] = redact(item)
 
-        return output
+        return result
 
     if isinstance(value, list):
         return [
-            redact(x)
-            for x in value
+            redact(item)
+            for item in value
         ]
 
     return value
@@ -142,27 +124,18 @@ def redact(value):
 def first_object(data):
 
     if isinstance(data, list):
-
-        if len(data) > 0:
-            return data[0]
-
-        return None
+        return data[0] if data else None
 
     if isinstance(data, dict):
 
-        if isinstance(
-            data.get("data"),
-            list,
-        ):
+        if isinstance(data.get("data"), list):
+            return (
+                data["data"][0]
+                if data["data"]
+                else None
+            )
 
-            if data["data"]:
-                return data["data"][0]
-
-        if isinstance(
-            data.get("data"),
-            dict,
-        ):
-
+        if isinstance(data.get("data"), dict):
             return data["data"]
 
         return data
@@ -171,12 +144,219 @@ def first_object(data):
 
 
 def kick_headers(token):
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+
+def kick_get(path, token, params=None):
+
+    try:
+
+        response = requests.get(
+            KICK_API_BASE + path,
+            headers=kick_headers(token),
+            params=params,
+            timeout=30,
+        )
+
+    except requests.RequestException as exc:
+
+        return {
+            "ok": False,
+            "status": 0,
+            "data": None,
+            "error": str(exc),
+        }
+
+    try:
+        data = response.json()
+    except Exception:
+        data = None
 
     return {
-        "Authorization":
-            f"Bearer {token}",
-        "Accept":
-            "application/json",
+        "ok": response.ok,
+        "status": response.status_code,
+        "data": data,
+        "error": None,
+        "text": response.text,
+    }
+
+
+# ============================================================
+# BUILD KICK RTMPS TARGET
+# ============================================================
+
+def build_kick_target(stream_url, stream_key):
+
+    stream_key = (
+        str(stream_key or "")
+        .strip()
+    )
+
+    if not stream_key:
+        raise ValueError(
+            "Stream Key is empty."
+        )
+
+    # --------------------------------------------------------
+    # Normalize URL
+    # --------------------------------------------------------
+
+    url = (
+        str(stream_url or "")
+        .strip()
+    )
+
+    if not url:
+        url = KICK_STREAM_URL
+
+    url = url.rstrip("/")
+
+    # --------------------------------------------------------
+    # KICK ingest path must end at /app
+    #
+    # Examples:
+    #
+    # rtmps://host:443/app
+    #
+    # rtmps://host:443/app/sk_xxxxx
+    # --------------------------------------------------------
+
+    if not url.endswith("/app"):
+
+        # If API returned a host without /app
+        if url.endswith(":443"):
+            url += "/app"
+
+        else:
+            # Remove accidental paths before rebuilding
+            parts = url.split("://", 1)
+
+            if len(parts) == 2:
+
+                scheme = parts[0]
+                rest = parts[1]
+
+                host = rest.split("/", 1)[0]
+
+                url = (
+                    f"{scheme}://"
+                    f"{host}/app"
+                )
+
+            else:
+
+                url = KICK_STREAM_URL.rstrip("/")
+
+                if not url.endswith("/app"):
+                    url += "/app"
+
+    return (
+        url
+        + "/"
+        + stream_key
+    )
+
+
+# ============================================================
+# GET STREAM CREDENTIALS
+# ============================================================
+
+def get_stream_credentials():
+
+    token = session.get(
+        "access_token"
+    )
+
+    if not token:
+        return {
+            "ok": False,
+            "error": "Not logged in.",
+        }
+
+    result = kick_get(
+        "/channels",
+        token,
+    )
+
+    if not result["ok"]:
+
+        return {
+            "ok": False,
+            "error":
+                "KICK /channels request failed.",
+            "status":
+                result["status"],
+            "response":
+                redact(
+                    result["data"]
+                    if result["data"] is not None
+                    else result["text"]
+                ),
+        }
+
+    channel = first_object(
+        result["data"]
+    )
+
+    if not isinstance(channel, dict):
+
+        return {
+            "ok": False,
+            "error":
+                "KICK did not return channel data.",
+            "response":
+                redact(result["data"]),
+        }
+
+    stream = channel.get(
+        "stream"
+    )
+
+    if not isinstance(
+        stream,
+        dict,
+    ):
+        stream = {}
+
+    stream_key = str(
+        stream.get("key", "")
+        or ""
+    ).strip()
+
+    stream_url = str(
+        stream.get("url", "")
+        or ""
+    ).strip()
+
+    if not stream_key:
+
+        return {
+            "ok": False,
+            "error":
+                "KICK returned an empty stream key.",
+            "response":
+                redact(result["data"]),
+        }
+
+    # Build final RTMPS URL now
+    target = build_kick_target(
+        stream_url,
+        stream_key,
+    )
+
+    return {
+        "ok": True,
+        "stream_key": stream_key,
+        "stream_url": stream_url,
+        "target": target,
+        "slug": channel.get("slug"),
+        "broadcaster_user_id":
+            channel.get(
+                "broadcaster_user_id"
+            ),
     }
 
 
@@ -188,7 +368,6 @@ def kick_headers(token):
 def index():
 
     if session.get("authenticated"):
-
         return redirect("/dashboard")
 
     return render_template(
@@ -203,19 +382,9 @@ def index():
 @app.route("/login")
 def login():
 
-    if not KICK_CLIENT_ID:
-        return (
-            "KICK_CLIENT_ID is missing",
-            500,
-        )
+    state = secrets.token_urlsafe(32)
 
-    state = secrets.token_urlsafe(
-        32
-    )
-
-    verifier = secrets.token_urlsafe(
-        64
-    )
+    verifier = secrets.token_urlsafe(64)
 
     digest = hashlib.sha256(
         verifier.encode()
@@ -235,22 +404,22 @@ def login():
     params = {
         "response_type": "code",
         "client_id": KICK_CLIENT_ID,
-        "redirect_uri": KICK_REDIRECT_URI,
-        "scope": " ".join(
-            KICK_SCOPES
-        ),
+        "redirect_uri":
+            KICK_REDIRECT_URI,
+        "scope":
+            " ".join(KICK_SCOPES),
         "state": state,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
+        "code_challenge":
+            challenge,
+        "code_challenge_method":
+            "S256",
     }
 
-    url = (
+    return redirect(
         KICK_AUTH_URL
         + "?"
         + urlencode(params)
     )
-
-    return redirect(url)
 
 
 # ============================================================
@@ -271,14 +440,15 @@ def callback():
             "",
         )
 
-        return render_template(
-            "index.html",
-            error=(
-                f"KICK OAuth Error: "
-                f"{error} "
-                f"{description}"
-            ),
-        ), 400
+        return (
+            f"""
+            <h2>KICK OAuth Error</h2>
+            <p>{error}</p>
+            <p>{description}</p>
+            <a href="/login">Login ใหม่</a>
+            """,
+            400,
+        )
 
     code = request.args.get(
         "code"
@@ -297,74 +467,43 @@ def callback():
     )
 
     if not code:
+        return (
+            "KICK ไม่ส่ง authorization code",
+            400,
+        )
 
-        return render_template(
-            "index.html",
-            error=(
-                "KICK ไม่ส่ง authorization code กลับมา"
-            ),
-        ), 400
-
-    if not state:
-
-        return render_template(
-            "index.html",
-            error=(
-                "KICK ไม่ส่ง OAuth state กลับมา"
-            ),
-        ), 400
-
-    if not saved_state:
-
-        return render_template(
-            "index.html",
-            error=(
-                "OAuth session หาย "
-                "กรุณากด Login ใหม่"
-            ),
-        ), 400
+    if not state or not saved_state:
+        return (
+            "OAuth session หาย กรุณา Login ใหม่",
+            400,
+        )
 
     if not secrets.compare_digest(
         state,
         saved_state,
     ):
-
-        return render_template(
-            "index.html",
-            error=(
-                "OAuth state ไม่ตรงกัน"
-            ),
-        ), 400
+        return (
+            "OAuth state ไม่ตรงกัน",
+            400,
+        )
 
     if not verifier:
-
-        return render_template(
-            "index.html",
-            error=(
-                "PKCE verifier หาย"
-            ),
-        ), 400
-
-    # --------------------------------------------------------
-    # TOKEN EXCHANGE
-    # --------------------------------------------------------
+        return (
+            "PKCE verifier หาย",
+            400,
+        )
 
     payload = {
         "grant_type":
             "authorization_code",
-
         "client_id":
             KICK_CLIENT_ID,
-
         "client_secret":
             KICK_CLIENT_SECRET,
-
         "redirect_uri":
             KICK_REDIRECT_URI,
-
         "code":
             code,
-
         "code_verifier":
             verifier,
     }
@@ -377,91 +516,62 @@ def callback():
             timeout=30,
         )
 
-    except Exception as exc:
+    except requests.RequestException as exc:
 
-        return render_template(
-            "index.html",
-            error=(
-                f"เชื่อมต่อ KICK ไม่สำเร็จ: "
-                f"{exc}"
-            ),
-        ), 502
+        return (
+            f"KICK token error: {exc}",
+            502,
+        )
 
     try:
-
         token_data = response.json()
-
     except Exception:
-
         token_data = {}
 
     if not response.ok:
 
-        return render_template(
-            "index.html",
-            error=(
-                "KICK Token Error "
-                f"{response.status_code}: "
-                f"{redact(token_data)}"
-            ),
-        ), 400
+        return (
+            f"""
+            <h2>KICK Token Error</h2>
+            <p>HTTP {response.status_code}</p>
+            <pre>{redact(token_data)}</pre>
+            <a href="/login">Login ใหม่</a>
+            """,
+            400,
+        )
 
     access_token = token_data.get(
         "access_token"
     )
 
-    refresh_token = token_data.get(
-        "refresh_token"
-    )
-
     if not access_token:
 
-        return render_template(
-            "index.html",
-            error=(
-                "KICK ไม่ส่ง Access Token กลับมา"
-            ),
-        ), 400
-
-    # --------------------------------------------------------
-    # SAVE SESSION
-    # --------------------------------------------------------
+        return (
+            "KICK ไม่ส่ง Access Token",
+            400,
+        )
 
     session.clear()
 
     session["authenticated"] = True
-
-    session["access_token"] = (
-        access_token
+    session["access_token"] = access_token
+    session["scope"] = (
+        token_data.get("scope", "")
     )
 
-    if refresh_token:
-
+    if token_data.get(
+        "refresh_token"
+    ):
         session["refresh_token"] = (
-            refresh_token
+            token_data[
+                "refresh_token"
+            ]
         )
-
-    session["scope"] = token_data.get(
-        "scope",
-        "",
-    )
-
-    session["expires_in"] = (
-        token_data.get(
-            "expires_in"
-        )
-    )
-
-    # --------------------------------------------------------
-    # GET USER
-    # --------------------------------------------------------
 
     user_result = kick_get(
         "/users",
         access_token,
     )
-
-    user = None
 
     if user_result["ok"]:
 
@@ -469,9 +579,8 @@ def callback():
             user_result["data"]
         )
 
-    if user:
-
-        session["user"] = user
+        if user:
+            session["user"] = user
 
     return redirect(
         "/dashboard"
@@ -488,16 +597,11 @@ def dashboard():
     if not session.get(
         "authenticated"
     ):
-
-        return redirect(
-            "/login"
-        )
+        return redirect("/login")
 
     return render_template(
         "dashboard.html",
-        user=session.get(
-            "user"
-        ),
+        user=session.get("user"),
         scope=session.get(
             "scope",
             "",
@@ -506,284 +610,25 @@ def dashboard():
 
 
 # ============================================================
-# LOGOUT
-# ============================================================
-
-@app.route("/logout")
-def logout():
-
-    stop_ffmpeg()
-
-    session.clear()
-
-    return redirect("/")
-
-
-# ============================================================
-# KICK GET
-# ============================================================
-
-def kick_get(
-    path,
-    token,
-    params=None,
-):
-
-    try:
-
-        response = requests.get(
-            KICK_API_BASE + path,
-            headers=kick_headers(
-                token
-            ),
-            params=params,
-            timeout=30,
-        )
-
-    except Exception as exc:
-
-        return {
-            "ok": False,
-            "status": 0,
-            "data": None,
-            "error": str(exc),
-        }
-
-    try:
-
-        data = response.json()
-
-    except Exception:
-
-        data = None
-
-    return {
-        "ok": response.ok,
-        "status":
-            response.status_code,
-        "data": data,
-        "error": None,
-    }
-
-
-# ============================================================
-# API ME
-# ============================================================
-
-@app.route("/api/me")
-def api_me():
-
-    token = session.get(
-        "access_token"
-    )
-
-    if not token:
-
-        return jsonify({
-            "ok": False,
-            "logged_in": False,
-        }), 401
-
-    result = kick_get(
-        "/users",
-        token,
-    )
-
-    if not result["ok"]:
-
-        return jsonify({
-            "ok": False,
-            "error":
-                redact(result),
-        }), 502
-
-    return jsonify({
-        "ok": True,
-        "data":
-            result["data"],
-    })
-
-
-# ============================================================
-# CHANNEL
-# ============================================================
-
-@app.route("/api/channel")
-def api_channel():
-
-    token = session.get(
-        "access_token"
-    )
-
-    if not token:
-
-        return jsonify({
-            "ok": False,
-            "error":
-                "Not logged in",
-        }), 401
-
-    result = kick_get(
-        "/channels",
-        token,
-    )
-
-    if not result["ok"]:
-
-        return jsonify({
-            "ok": False,
-            "status":
-                result["status"],
-            "data":
-                redact(
-                    result["data"]
-                ),
-        }), 502
-
-    return jsonify({
-        "ok": True,
-        "data":
-            result["data"],
-    })
-
-
-# ============================================================
-# STREAM CREDENTIALS
-# ============================================================
-
-def get_stream_credentials():
-
-    token = session.get(
-        "access_token"
-    )
-
-    if not token:
-
-        return {
-            "ok": False,
-            "error":
-                "Not logged in",
-        }
-
-    result = kick_get(
-        "/channels",
-        token,
-    )
-
-    if not result["ok"]:
-
-        return {
-            "ok": False,
-            "error":
-                "KICK /channels failed",
-            "status":
-                result["status"],
-            "response":
-                redact(
-                    result["data"]
-                ),
-        }
-
-    data = result["data"]
-
-    channel = first_object(
-        data
-    )
-
-    if not isinstance(
-        channel,
-        dict,
-    ):
-
-        return {
-            "ok": False,
-            "error":
-                "ไม่พบ Channel",
-            "response":
-                redact(data),
-        }
-
-    stream = channel.get(
-        "stream"
-    )
-
-    if not isinstance(
-        stream,
-        dict,
-    ):
-
-        stream = {}
-
-    stream_key = str(
-        stream.get(
-            "key",
-            "",
-        )
-        or ""
-    ).strip()
-
-    stream_url = str(
-        stream.get(
-            "url",
-            "",
-        )
-        or ""
-    ).strip()
-
-    if not stream_key:
-
-        return {
-            "ok": False,
-            "error":
-                "KICK ไม่ส่ง Stream Key",
-            "response":
-                redact(data),
-        }
-
-    return {
-        "ok": True,
-        "stream_key":
-            stream_key,
-        "stream_url":
-            stream_url or KICK_STREAM_URL,
-        "slug":
-            channel.get(
-                "slug"
-            ),
-        "broadcaster_user_id":
-            channel.get(
-                "broadcaster_user_id"
-            ),
-    }
-
-
-# ============================================================
 # DEBUG STREAM
 # ============================================================
 
-@app.route(
-    "/api/debug/stream"
-)
+@app.route("/api/debug/stream")
 def debug_stream():
 
     if not session.get(
         "authenticated"
     ):
-
         return jsonify({
             "ok": False,
             "error":
-                "Not logged in",
+                "Not logged in.",
         }), 401
 
     result = get_stream_credentials()
 
-    result = redact(
-        result
-    )
-
     return jsonify(
-        result
+        redact(result)
     )
 
 
@@ -800,7 +645,6 @@ def start_live():
     if not session.get(
         "authenticated"
     ):
-
         return jsonify({
             "ok": False,
             "error":
@@ -830,29 +674,18 @@ def start_live():
     if not credentials["ok"]:
 
         return jsonify(
-            credentials
+            redact(credentials)
         ), 502
 
-    stream_key = (
-        credentials[
-            "stream_key"
-        ]
-    )
-
-    stream_url = (
-        credentials[
-            "stream_url"
-        ]
-    )
-
-    target = (
-        stream_url.rstrip("/")
-        + "/"
-        + stream_key
-    )
+    target = credentials[
+        "target"
+    ]
 
     # --------------------------------------------------------
-    # TEST LIVE
+    # IMPORTANT:
+    # Target should now look like:
+    #
+    # rtmps://host:443/app/sk_xxxxx
     # --------------------------------------------------------
 
     command = [
@@ -862,24 +695,21 @@ def start_live():
         "-loglevel",
         "warning",
 
+        # Test video
         "-re",
-
         "-f",
         "lavfi",
-
         "-i",
-        "testsrc2="
-        "size=1280x720:"
-        "rate=30",
+        "testsrc2=size=1280x720:rate=30",
 
+        # Test audio
+        "-re",
         "-f",
         "lavfi",
-
         "-i",
-        "sine="
-        "frequency=440:"
-        "sample_rate=48000",
+        "sine=frequency=440:sample_rate=48000",
 
+        # H.264
         "-c:v",
         "libx264",
 
@@ -898,6 +728,9 @@ def start_live():
         "-g",
         "60",
 
+        "-keyint_min",
+        "60",
+
         "-b:v",
         "4500k",
 
@@ -907,6 +740,7 @@ def start_live():
         "-bufsize",
         "9000k",
 
+        # AAC
         "-c:a",
         "aac",
 
@@ -919,6 +753,7 @@ def start_live():
         "-ac",
         "2",
 
+        # FLV / RTMPS
         "-f",
         "flv",
 
@@ -938,22 +773,21 @@ def start_live():
         return jsonify({
             "ok": False,
             "error":
-                "Render ไม่มี FFmpeg",
+                "ไม่พบ FFmpeg บน Render",
         }), 500
 
     except Exception as exc:
 
         return jsonify({
             "ok": False,
-            "error":
-                str(exc),
+            "error": str(exc),
         }), 500
 
     with ffmpeg_lock:
-
         ffmpeg_process = process
 
-    time.sleep(4)
+    # Wait for connection
+    time.sleep(5)
 
     if process.poll() is not None:
 
@@ -974,7 +808,6 @@ def start_live():
             pass
 
         with ffmpeg_lock:
-
             ffmpeg_process = None
 
         return jsonify({
@@ -982,18 +815,45 @@ def start_live():
             "error":
                 "FFmpeg หยุดทำงาน",
             "ffmpeg":
-                error_text[-6000:],
+                error_text[-8000:],
         }), 502
 
     return jsonify({
         "ok": True,
         "message":
-            "เริ่มส่ง Live ไป KICK แล้ว",
+            "ส่ง Live ไป KICK แล้ว",
+        "target":
+            redact_target(target),
     })
 
 
 # ============================================================
-# STOP LIVE
+# REDACT TARGET
+# ============================================================
+
+def redact_target(target):
+
+    if not target:
+        return ""
+
+    # Keep host/path visible, hide stream key.
+    if "/app/" in target:
+
+        prefix = target.split(
+            "/app/",
+            1
+        )[0]
+
+        return (
+            prefix
+            + "/app/[STREAM_KEY_HIDDEN]"
+        )
+
+    return "[STREAM_TARGET_HIDDEN]"
+
+
+# ============================================================
+# STOP
 # ============================================================
 
 @app.route(
@@ -1024,7 +884,6 @@ def stop_ffmpeg():
     with ffmpeg_lock:
 
         process = ffmpeg_process
-
         ffmpeg_process = None
 
     if not process:
@@ -1037,7 +896,6 @@ def stop_ffmpeg():
             process.terminate()
 
             try:
-
                 process.wait(
                     timeout=5
                 )
@@ -1045,7 +903,6 @@ def stop_ffmpeg():
             except subprocess.TimeoutExpired:
 
                 process.kill()
-
                 process.wait(
                     timeout=3
                 )
@@ -1060,9 +917,7 @@ def stop_ffmpeg():
 # STATUS
 # ============================================================
 
-@app.route(
-    "/api/status"
-)
+@app.route("/api/status")
 def status():
 
     running = False
@@ -1074,7 +929,6 @@ def status():
             and ffmpeg_process.poll()
             is None
         ):
-
             running = True
 
     return jsonify({
@@ -1105,7 +959,21 @@ def health():
 
 
 # ============================================================
-# RUN
+# LOGOUT
+# ============================================================
+
+@app.route("/logout")
+def logout():
+
+    stop_ffmpeg()
+
+    session.clear()
+
+    return redirect("/")
+
+
+# ============================================================
+# MAIN
 # ============================================================
 
 if __name__ == "__main__":
@@ -1113,7 +981,7 @@ if __name__ == "__main__":
     port = int(
         os.getenv(
             "PORT",
-            "5000",
+            "10000",
         )
     )
 
