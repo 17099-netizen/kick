@@ -1,533 +1,83 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-
-<meta charset="UTF-8">
-
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
-
-<title>AI KICK Live Dashboard</title>
-
-<style>
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-
-    margin: 0;
-
-    min-height: 100vh;
-
-    background:
-        radial-gradient(
-            circle at top left,
-            #21402e,
-            #090d0b 55%
-        );
-
-    color: white;
-
-    font-family:
-        Arial,
-        sans-serif;
-}
-
-header {
-
-    height: 70px;
-
-    display: flex;
-
-    align-items: center;
-
-    justify-content: space-between;
-
-    padding: 0 30px;
-
-    border-bottom:
-        1px solid #27352c;
-
-    background:
-        rgba(10,15,12,.8);
-
-    backdrop-filter:
-        blur(20px);
-}
-
-.logo {
-
-    font-size: 21px;
-
-    font-weight: bold;
-}
-
-.logo span {
-
-    color: #53ff9d;
-}
-
-.logout {
-
-    color: #ff8585;
-
-    text-decoration: none;
-
-    padding: 9px 15px;
-
-    border:
-        1px solid #542b2b;
-
-    border-radius: 10px;
-}
-
-.container {
-
-    width: 100%;
-
-    max-width: 1100px;
-
-    margin: auto;
-
-    padding: 35px 20px;
-}
-
-.user {
-
-    background:
-        #151c17;
-
-    border:
-        1px solid #29372e;
-
-    border-radius: 18px;
-
-    padding: 20px;
-
-    margin-bottom: 25px;
-}
-
-.grid {
-
-    display: grid;
-
-    grid-template-columns:
-        repeat(
-            auto-fit,
-            minmax(260px, 1fr)
-        );
-
-    gap: 20px;
-}
-
-.card {
-
-    background:
-        rgba(20,27,23,.95);
-
-    border:
-        1px solid #29372e;
-
-    border-radius: 20px;
-
-    padding: 25px;
-}
-
-.status {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 10px;
-
-    margin: 15px 0;
-}
-
-.dot {
-
-    width: 12px;
-
-    height: 12px;
-
-    border-radius: 50%;
-
-    background: #777;
-}
-
-.dot.live {
-
-    background: #ff3030;
-
-    box-shadow:
-        0 0 15px #ff3030;
-}
-
-button {
-
-    width: 100%;
-
-    border: 0;
-
-    border-radius: 13px;
-
-    padding: 15px;
-
-    font-size: 16px;
-
-    font-weight: bold;
-
-    cursor: pointer;
-
-    margin-top: 10px;
-}
-
-.start {
-
-    background: #53ff9d;
-
-    color: #07100b;
-}
-
-.stop {
-
-    background: #4a2020;
-
-    color: #ffb0b0;
-}
-
-.debug {
-
-    background: #202b24;
-
-    color: white;
-}
-
-.result {
-
-    margin-top: 15px;
-
-    padding: 15px;
-
-    background: #090d0b;
-
-    border-radius: 12px;
-
-    color: #aeb8b1;
-
-    white-space: pre-wrap;
-
-    word-break: break-word;
-
-    font-family: monospace;
-
-    font-size: 12px;
-}
-
-.badge {
-
-    display: inline-block;
-
-    padding: 5px 9px;
-
-    border-radius: 8px;
-
-    background: #193a28;
-
-    color: #53ff9d;
-
-    font-size: 12px;
-}
-
-</style>
-
+    <meta charset="utf-8">
+    <title>AI Live Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background: #1a1a1a; color: #eee; }
+        .navbar { background: #333; padding: 10px; display: flex; gap: 15px; }
+        .navbar a { color: #eee; text-decoration: none; padding: 8px 12px; border-radius: 4px; }
+        .navbar a:hover { background: #555; }
+        .container { max-width: 800px; margin: 20px auto; }
+        .card { background: #2a2a2a; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #45a049; }
+        input { width: 100%; padding: 8px; margin: 8px 0; border-radius: 4px; border: 1px solid #555; background: #333; color: #eee; }
+    </style>
 </head>
-
 <body>
-
-<header>
-
-    <div class="logo">
-        AI <span>KICK</span> Live
+    <div class="navbar">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/test">Test</a>
+        <a href="/status">Status</a>
+        <a href="/logout" style="margin-left:auto;">Logout</a>
     </div>
 
-    <a
-        href="/logout"
-        class="logout"
-    >
-        ออกจากระบบ
-    </a>
-
-</header>
-
-
-<div class="container">
-
-    <div class="user">
-
-        <div class="badge">
-            KICK CONNECTED
-        </div>
-
-        <h2>
-            พร้อมควบคุม Live
-        </h2>
-
-        <p>
-            {% if user %}
-                {{ user.get("name", user.get("username", "KICK User")) }}
-            {% else %}
-                KICK Broadcaster
-            {% endif %}
-        </p>
-
-    </div>
-
-
-    <div class="grid">
-
-
-        <!-- LIVE CONTROL -->
+    <div class="container">
+        <h1>Dashboard</h1>
 
         <div class="card">
-
-            <h2>
-                Live Control
-            </h2>
-
-            <div class="status">
-
-                <div
-                    id="statusDot"
-                    class="dot"
-                ></div>
-
-                <span id="statusText">
-                    กำลังตรวจสอบ...
-                </span>
-
-            </div>
-
-            <button
-                class="start"
-                onclick="startLive()"
-            >
-                เริ่ม LIVE
-            </button>
-
-            <button
-                class="stop"
-                onclick="stopLive()"
-            >
-                หยุด LIVE
-            </button>
-
+            <h2>Live Control</h2>
+            <button id="startBtn">Start Live</button>
+            <button id="stopBtn">Stop Live</button>
+            <span id="liveStatus">Stopped</span>
         </div>
-
-
-        <!-- STREAM -->
 
         <div class="card">
-
-            <h2>
-                Stream
-            </h2>
-
-            <p>
-                ตรวจสอบการเชื่อมต่อ
-                และ Stream Key
-            </p>
-
-            <button
-                class="debug"
-                onclick="checkStream()"
-            >
-                ตรวจสอบ Stream
-            </button>
-
-            <div
-                id="result"
-                class="result"
-            >
-                ยังไม่ได้ตรวจสอบ
-            </div>
-
+            <h2>AI Speak</h2>
+            <input type="text" id="aiText" placeholder="พิมพ์ข้อความ...">
+            <button id="speakBtn">Speak</button>
         </div>
 
-
+        <div class="card">
+            <h2>KICK Webhook</h2>
+            <button id="subscribeBtn">Subscribe</button>
+            <button id="subscriptionsBtn">View Subscriptions</button>
+        </div>
     </div>
 
-</div>
-
-
-<script>
-
-async function api(
-    url,
-    options = {}
-) {
-
-    const response =
-        await fetch(
-            url,
-            {
-                credentials:
-                    "same-origin",
-                ...options
-            }
-        );
-
-    const text =
-        await response.text();
-
-    try {
-
-        return JSON.parse(text);
-
-    } catch {
-
-        return {
-            ok: false,
-            error: text
-        };
-    }
-}
-
-
-async function startLive() {
-
-    const result =
-        document.getElementById(
-            "result"
-        );
-
-    result.textContent =
-        "กำลังเริ่ม Live...";
-
-    const data =
-        await api(
-            "/api/start",
-            {
-                method: "POST"
-            }
-        );
-
-    result.textContent =
-        JSON.stringify(
-            data,
-            null,
-            2
-        );
-
-    updateStatus();
-}
-
-
-async function stopLive() {
-
-    const result =
-        document.getElementById(
-            "result"
-        );
-
-    result.textContent =
-        "กำลังหยุด Live...";
-
-    const data =
-        await api(
-            "/api/stop",
-            {
-                method: "POST"
-            }
-        );
-
-    result.textContent =
-        JSON.stringify(
-            data,
-            null,
-            2
-        );
-
-    updateStatus();
-}
-
-
-async function checkStream() {
-
-    const result =
-        document.getElementById(
-            "result"
-        );
-
-    result.textContent =
-        "กำลังตรวจสอบ...";
-
-    const data =
-        await api(
-            "/api/debug/stream"
-        );
-
-    result.textContent =
-        JSON.stringify(
-            data,
-            null,
-            2
-        );
-}
-
-
-async function updateStatus() {
-
-    const data =
-        await api(
-            "/api/status"
-        );
-
-    const dot =
-        document.getElementById(
-            "statusDot"
-        );
-
-    const text =
-        document.getElementById(
-            "statusText"
-        );
-
-    if (
-        data.live === true
-    ) {
-
-        dot.classList.add(
-            "live"
-        );
-
-        text.textContent =
-            "LIVE กำลังทำงาน";
-
-    } else {
-
-        dot.classList.remove(
-            "live"
-        );
-
-        text.textContent =
-            "OFFLINE";
-    }
-}
-
-
-updateStatus();
-
-setInterval(
-    updateStatus,
-    3000
-);
-
-</script>
-
+    <script>
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            const res = await fetch('/api/start', { method: 'POST' });
+            const data = await res.json();
+            alert(JSON.stringify(data, null, 2));
+        });
+        document.getElementById('stopBtn').addEventListener('click', async () => {
+            const res = await fetch('/api/stop', { method: 'POST' });
+            const data = await res.json();
+            alert(JSON.stringify(data, null, 2));
+        });
+        document.getElementById('speakBtn').addEventListener('click', async () => {
+            const text = document.getElementById('aiText').value;
+            if (!text) return;
+            const res = await fetch('/api/ai/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            const data = await res.json();
+            alert(JSON.stringify(data, null, 2));
+        });
+        document.getElementById('subscribeBtn').addEventListener('click', async () => {
+            const res = await fetch('/api/kick/subscribe', { method: 'POST' });
+            const data = await res.json();
+            alert(JSON.stringify(data, null, 2));
+        });
+        document.getElementById('subscriptionsBtn').addEventListener('click', async () => {
+            const res = await fetch('/api/kick/subscriptions');
+            const data = await res.json();
+            alert(JSON.stringify(data, null, 2));
+        });
+    </script>
 </body>
 </html>
