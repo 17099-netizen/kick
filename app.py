@@ -259,22 +259,12 @@ def kick_get(path, token, params=None):
 # ============================================================
 
 def normalize_kick_stream_url(url):
-
+    # KICK API already returns the ingest URL.
+    # Keep it intact, including :443.
     url = str(url or "").strip().rstrip("/")
 
-    if not url:
-        url = KICK_STREAM_URL.rstrip("/")
-
-    if url.endswith("/app"):
+    if url:
         return url
-
-    if "://" in url:
-
-        scheme, rest = url.split("://", 1)
-
-        host = rest.split("/", 1)[0]
-
-        return f"{scheme}://{host}/app"
 
     return KICK_STREAM_URL.rstrip("/")
 
@@ -539,8 +529,30 @@ def audio_to_pcm(audio_bytes):
 # FFMPEG LIVE
 # ============================================================
 
-def start_ffmpeg_stream():
+def _drain_ffmpeg_stderr(process):
+    # Prevent FFmpeg's stderr pipe from filling and stalling the process.
+    try:
+        while True:
+            line = process.stderr.readline()
+            if not line:
+                break
 
+            decoded = line.decode(
+                "utf-8",
+                errors="replace"
+            ).strip()
+
+            if decoded:
+                print("[FFmpeg]", decoded)
+
+    except Exception as exc:
+        print(
+            "FFmpeg stderr reader error:",
+            repr(exc)
+        )
+
+
+def start_ffmpeg_stream():
     global ffmpeg_process
 
     credentials = get_stream_credentials()
@@ -550,35 +562,38 @@ def start_ffmpeg_stream():
             credentials["error"]
         )
 
-    target = credentials["target"]
+    target = str(
+        credentials["target"]
+    ).strip()
+
+    if not target.startswith("rtmps://"):
+        raise RuntimeError(
+            "KICK returned an invalid RTMPS target."
+        )
+
+    print(
+        "KICK RTMPS:",
+        credentials["stream_url"]
+    )
 
     command = [
         "ffmpeg",
-
         "-hide_banner",
-        "-loglevel",
-        "warning",
+        "-loglevel", "warning",
 
-        # Background
-        "-f",
-        "lavfi",
+        # Stable 1280x720 video source
+        "-re",
+        "-f", "lavfi",
         "-i",
-        "color="
-        "c=0x080D0A:"
-        "s=1280x720:"
-        "r=30",
+        "color=c=0x080D0A:s=1280x720:r=30",
 
-        # Raw PCM audio
-        "-f",
-        "s16le",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-i",
-        "pipe:0",
+        # PCM audio supplied by the Python process
+        "-f", "s16le",
+        "-ar", "48000",
+        "-ac", "2",
+        "-i", "pipe:0",
 
-        # Waveform
+        # Background + waveform
         "-filter_complex",
         (
             "[0:v]"
@@ -592,7 +607,7 @@ def start_ffmpeg_stream():
 
             "[1:a]"
             "showwaves="
-            "s=1100x300:"
+            "s=1100x260:"
             "mode=cline:"
             "rate=30:"
             "colors=0x53FF9D:"
@@ -603,49 +618,39 @@ def start_ffmpeg_stream():
             "overlay="
             "(W-w)/2:"
             "(H-h)/2"
+            "[outv]"
         ),
 
-        "-map",
-        "0:v",
+        "-map", "[outv]",
+        "-map", "1:a",
 
-        "-map",
-        "1:a",
+        # H.264
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-tune", "zerolatency",
+        "-pix_fmt", "yuv420p",
+        "-r", "30",
+        "-g", "60",
+        "-keyint_min", "60",
+        "-sc_threshold", "0",
+        "-b:v", "4500k",
+        "-maxrate", "4500k",
+        "-bufsize", "9000k",
 
-        # Video
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-tune",
-        "zerolatency",
-        "-pix_fmt",
-        "yuv420p",
-        "-r",
-        "30",
-        "-g",
-        "60",
-        "-b:v",
-        "4500k",
-        "-maxrate",
-        "4500k",
-        "-bufsize",
-        "9000k",
+        # AAC
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-ar", "48000",
+        "-ac", "2",
 
-        # Audio
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-
-        # KICK
-        "-f",
-        "flv",
+        # KICK RTMPS
+        "-rtmp_live", "live",
+        "-flvflags", "no_duration_filesize",
+        "-f", "flv",
         target,
     ]
+
+    print("Starting FFmpeg -> KICK")
 
     process = subprocess.Popen(
         command,
@@ -657,6 +662,13 @@ def start_ffmpeg_stream():
 
     with ffmpeg_lock:
         ffmpeg_process = process
+
+    threading.Thread(
+        target=_drain_ffmpeg_stderr,
+        args=(process,),
+        daemon=True,
+        name="ffmpeg-stderr",
+    ).start()
 
     return process
 
@@ -1257,7 +1269,7 @@ def api_start():
 
     start_background_workers()
 
-    time.sleep(3)
+    time.sleep(8)
 
     if process.poll() is not None:
 
@@ -1452,6 +1464,27 @@ def test_tts():
 # ============================================================
 # DEBUG STREAM
 # ============================================================
+
+@app.route(
+    "/api/debug/ffmpeg"
+)
+def debug_ffmpeg():
+    with ffmpeg_lock:
+        process = ffmpeg_process
+
+    return jsonify({
+        "ok": True,
+        "running": bool(
+            process
+            and process.poll() is None
+        ),
+        "returncode": (
+            process.poll()
+            if process
+            else None
+        ),
+    })
+
 
 @app.route(
     "/api/debug/stream"
