@@ -529,26 +529,62 @@ def audio_to_pcm(audio_bytes):
 # FFMPEG LIVE
 # ============================================================
 
+FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
+ffmpeg_last_error = ""
+ffmpeg_log_lock = threading.Lock()
+
+
+def _append_ffmpeg_log(text):
+    global ffmpeg_last_error
+
+    if not text:
+        return
+
+    with ffmpeg_log_lock:
+        try:
+            with open(
+                FFMPEG_LOG_PATH,
+                "a",
+                encoding="utf-8"
+            ) as f:
+                f.write(text)
+                if not text.endswith("\n"):
+                    f.write("\n")
+        except Exception:
+            pass
+
+        # Keep the most recent error text available to the API.
+        ffmpeg_last_error = (
+            text[-15000:]
+        )
+
+
 def _drain_ffmpeg_stderr(process):
-    # Prevent FFmpeg's stderr pipe from filling and stalling the process.
+    # Continuously drain FFmpeg stderr so the pipe cannot fill.
+    # At the same time, persist the real FFmpeg error.
     try:
         while True:
             line = process.stderr.readline()
+
             if not line:
                 break
 
             decoded = line.decode(
                 "utf-8",
                 errors="replace"
-            ).strip()
+            )
 
-            if decoded:
-                print("[FFmpeg]", decoded)
+            print(
+                "[FFmpeg]",
+                decoded.rstrip()
+            )
+
+            _append_ffmpeg_log(decoded)
 
     except Exception as exc:
-        print(
-            "FFmpeg stderr reader error:",
-            repr(exc)
+        _append_ffmpeg_log(
+            "FFmpeg stderr reader error: "
+            + repr(exc)
         )
 
 
@@ -649,6 +685,27 @@ def start_ffmpeg_stream():
         "-f", "flv",
         target,
     ]
+
+    global ffmpeg_last_error
+
+    with ffmpeg_log_lock:
+        ffmpeg_last_error = ""
+        try:
+            with open(
+                FFMPEG_LOG_PATH,
+                "w",
+                encoding="utf-8"
+            ) as f:
+                f.write(
+                    "=== FFmpeg session started ===\\n"
+                )
+                f.write(
+                    "Target: "
+                    + redact({"target": target})["target"]
+                    + "\\n"
+                )
+        except Exception:
+            pass
 
     print("Starting FFmpeg -> KICK")
 
@@ -1469,21 +1526,74 @@ def test_tts():
     "/api/debug/ffmpeg"
 )
 def debug_ffmpeg():
+
     with ffmpeg_lock:
         process = ffmpeg_process
 
+    returncode = (
+        process.poll()
+        if process
+        else None
+    )
+
+    try:
+        with open(
+            FFMPEG_LOG_PATH,
+            "r",
+            encoding="utf-8",
+            errors="replace"
+        ) as f:
+            log = f.read()
+
+    except Exception:
+        log = ""
+
     return jsonify({
         "ok": True,
+
         "running": bool(
             process
             and process.poll() is None
         ),
-        "returncode": (
-            process.poll()
-            if process
-            else None
-        ),
+
+        "returncode":
+            returncode,
+
+        "last_error":
+            ffmpeg_last_error,
+
+        "log":
+            log[-15000:],
     })
+
+
+@app.route(
+    "/api/debug/ffmpeg-log"
+)
+def debug_ffmpeg_log():
+
+    try:
+        with open(
+            FFMPEG_LOG_PATH,
+            "r",
+            encoding="utf-8",
+            errors="replace"
+        ) as f:
+            log = f.read()
+
+        return jsonify({
+            "ok": True,
+            "log":
+                log[-30000:]
+        })
+
+    except Exception as exc:
+
+        return jsonify({
+            "ok": False,
+            "error":
+                str(exc)
+        })
 
 
 @app.route(
