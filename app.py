@@ -1,4 +1,6 @@
 import os
+import io
+import wave
 import time
 import json
 import base64
@@ -118,6 +120,20 @@ KICK_API_BASE = (
     "https://api.kick.com/public/v1"
 )
 
+# KICK chat endpoints can vary by API version/account.
+# Keep them configurable so the app can be updated without code changes.
+KICK_CHAT_URL = os.getenv(
+    "KICK_CHAT_URL",
+    "https://api.kick.com/public/v1/chat"
+)
+
+KICK_CHAT_POLL_SECONDS = float(
+    os.getenv(
+        "KICK_CHAT_POLL_SECONDS",
+        "2"
+    )
+)
+
 KICK_STREAM_URL = os.getenv(
     "KICK_STREAM_URL",
     "rtmps://fa723fc1b171.global-contribute.live-video.net:443/app"
@@ -127,7 +143,27 @@ KICK_SCOPES = [
     "user:read",
     "channel:read",
     "streamkey:read",
+    "chat:write",
+    "events:subscribe",
 ]
+
+KICK_WEBHOOK_URL = os.getenv(
+    "KICK_WEBHOOK_URL",
+    "https://kick-crka.onrender.com/webhook/kick"
+).strip()
+
+KICK_WEBHOOK_VERIFY = (
+    os.getenv(
+        "KICK_WEBHOOK_VERIFY",
+        "false"
+    ).strip().lower()
+    == "true"
+)
+
+# The OAuth user token is kept server-side for webhook subscription
+# and chat replies. Do not expose it to the browser.
+kick_access_token = ""
+kick_broadcaster_user_id = None
 
 # ============================================================
 # GLOBAL STATE
@@ -252,6 +288,453 @@ def kick_get(path, token, params=None):
         "data": data,
         "text": response.text,
     }
+
+
+# ============================================================
+# KICK EVENTS / CHAT
+# ============================================================
+
+def kick_json_request(
+    method,
+    path,
+    token,
+    payload=None,
+):
+    try:
+        response = requests.request(
+            method,
+            KICK_API_BASE + path,
+            headers={
+                "Authorization":
+                    f"Bearer {token}",
+                "Accept":
+                    "application/json",
+                "Content-Type":
+                    "application/json",
+            },
+            json=payload,
+            timeout=30,
+        )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "raw":
+                    response.text
+            }
+
+        return {
+            "ok": response.ok,
+            "status":
+                response.status_code,
+            "data":
+                data,
+            "text":
+                response.text,
+        }
+
+    except requests.RequestException as exc:
+
+        return {
+            "ok": False,
+            "status": 0,
+            "error":
+                str(exc),
+            "data": None,
+        }
+
+
+def subscribe_kick_chat():
+
+    global kick_broadcaster_user_id
+
+    token = kick_access_token
+
+    if not token:
+        return {
+            "ok": False,
+            "error":
+                "No authenticated KICK access token."
+        }
+
+    channel_result = kick_get(
+        "/channels",
+        token,
+    )
+
+    if not channel_result["ok"]:
+        return {
+            "ok": False,
+            "error":
+                "Unable to read KICK channel.",
+            "details":
+                redact(channel_result),
+        }
+
+    channel = first_object(
+        channel_result.get("data")
+    )
+
+    if not isinstance(
+        channel,
+        dict,
+    ):
+        return {
+            "ok": False,
+            "error":
+                "KICK did not return channel information."
+        }
+
+    broadcaster_id = (
+        channel.get(
+            "broadcaster_user_id"
+        )
+        or channel.get(
+            "user_id"
+        )
+    )
+
+    if not broadcaster_id:
+        return {
+            "ok": False,
+            "error":
+                "Could not determine broadcaster_user_id."
+        }
+
+    kick_broadcaster_user_id = int(
+        broadcaster_id
+    )
+
+    payload = {
+        "broadcaster_user_id":
+            kick_broadcaster_user_id,
+
+        "events": [
+            {
+                "name":
+                    "chat.message.sent",
+                "version":
+                    1,
+            }
+        ],
+
+        "method":
+            "webhook",
+    }
+
+    result = kick_json_request(
+        "POST",
+        "/events/subscriptions",
+        token,
+        payload,
+    )
+
+    return {
+        "ok":
+            result["ok"],
+        "status":
+            result["status"],
+        "data":
+            redact(result.get("data")),
+        "webhook_url":
+            KICK_WEBHOOK_URL,
+        "broadcaster_user_id":
+            kick_broadcaster_user_id,
+    }
+
+
+def get_kick_subscriptions():
+
+    if not kick_access_token:
+        return {
+            "ok": False,
+            "error":
+                "No authenticated KICK access token."
+        }
+
+    result = kick_get(
+        "/events/subscriptions",
+        kick_access_token,
+    )
+
+    return {
+        "ok":
+            result["ok"],
+        "status":
+            result["status"],
+        "data":
+            redact(result.get("data")),
+        "text":
+            result.get("text", ""),
+    }
+
+
+def send_kick_chat_message(
+    content,
+    reply_to_message_id=None,
+):
+
+    if not kick_access_token:
+        return {
+            "ok": False,
+            "error":
+                "No authenticated KICK access token."
+        }
+
+    if kick_broadcaster_user_id is None:
+        return {
+            "ok": False,
+            "error":
+                "No broadcaster_user_id."
+        }
+
+    payload = {
+        "type":
+            "user",
+
+        "broadcaster_user_id":
+            int(kick_broadcaster_user_id),
+
+        "content":
+            str(content)[:500],
+    }
+
+    if reply_to_message_id:
+        payload[
+            "reply_to_message_id"
+        ] = str(
+            reply_to_message_id
+        )
+
+    result = kick_json_request(
+        "POST",
+        "/chat",
+        kick_access_token,
+        payload,
+    )
+
+    return {
+        "ok":
+            result["ok"],
+        "status":
+            result["status"],
+        "data":
+            redact(result.get("data")),
+    }
+
+
+# Keep the webhook receiver lightweight:
+# acknowledge immediately, then process the AI work in a thread.
+@app.route(
+    "/webhook/kick",
+    methods=["POST"]
+)
+def kick_webhook():
+
+    raw_body = request.get_data(
+        cache=True
+    )
+
+    event_type = request.headers.get(
+        "Kick-Event-Type",
+        ""
+    )
+
+    event_version = request.headers.get(
+        "Kick-Event-Version",
+        ""
+    )
+
+    event_message_id = request.headers.get(
+        "Kick-Event-Message-Id",
+        ""
+    )
+
+    # For first-stage testing, signature verification is optional.
+    # Enable KICK_WEBHOOK_VERIFY=true only after the public-key
+    # verification settings are configured for this deployment.
+    if KICK_WEBHOOK_VERIFY:
+        # We deliberately fail closed here rather than pretending
+        # an unimplemented verifier is secure.
+        return jsonify({
+            "ok": False,
+            "error":
+                "Webhook signature verification is enabled but "
+                "not configured in this build."
+        }), 501
+
+    try:
+        payload = json.loads(
+            raw_body.decode(
+                "utf-8",
+                errors="replace"
+            )
+        )
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error":
+                "Invalid JSON"
+        }), 400
+
+    print(
+        "KICK WEBHOOK:",
+        event_type,
+        event_version,
+        event_message_id,
+    )
+
+    if event_type == "chat.message.sent":
+
+        threading.Thread(
+            target=process_kick_chat_event,
+            args=(payload,),
+            daemon=True,
+            name="kick-chat-ai",
+        ).start()
+
+    # Acknowledge KICK immediately.
+    return jsonify({
+        "ok": True
+    }), 200
+
+
+def process_kick_chat_event(payload):
+
+    try:
+
+        sender = payload.get(
+            "sender"
+        ) or {}
+
+        broadcaster = payload.get(
+            "broadcaster"
+        ) or {}
+
+        username = (
+            sender.get(
+                "username"
+            )
+            or sender.get(
+                "name"
+            )
+            or "ผู้ชม"
+        )
+
+        content = str(
+            payload.get(
+                "content",
+                ""
+            )
+        ).strip()
+
+        message_id = payload.get(
+            "message_id"
+        )
+
+        if not content:
+            return
+
+        # Do not answer an empty message.
+        if len(content) > 500:
+            return
+
+        # Make sure this event belongs to our authorized broadcaster.
+        incoming_broadcaster_id = (
+            broadcaster.get(
+                "user_id"
+            )
+        )
+
+        if (
+            kick_broadcaster_user_id
+            and incoming_broadcaster_id
+            and int(incoming_broadcaster_id)
+            != int(kick_broadcaster_user_id)
+        ):
+            return
+
+        prompt = (
+            f"ผู้ชมชื่อ {username} "
+            f"ส่งข้อความว่า: {content}\n\n"
+            "ตอบกลับเป็นภาษาไทยแบบเป็นธรรมชาติ "
+            "สั้น กระชับ เหมาะสำหรับพูดในไลฟ์ "
+            "ประมาณ 1 ถึง 3 ประโยค "
+            "ไม่ต้องใช้ Markdown "
+            "ไม่ต้องพูดว่าเป็น AI "
+            "และอย่าใส่คำอธิบายระบบ"
+        )
+
+        answer = mistral_generate(
+            prompt
+        )
+
+        # Put the answer into the live voice queue.
+        speak_ai(answer)
+
+        # Also reply inside KICK chat.
+        chat_result = send_kick_chat_message(
+            answer,
+            reply_to_message_id=message_id,
+        )
+
+        print(
+            "KICK AI reply:",
+            redact(chat_result)
+        )
+
+    except Exception as exc:
+
+        print(
+            "KICK chat AI error:",
+            repr(exc)
+        )
+
+
+@app.route(
+    "/api/kick/subscribe",
+    methods=["POST"]
+)
+def api_kick_subscribe():
+
+    if not session.get(
+        "authenticated"
+    ):
+        return jsonify({
+            "ok": False,
+            "error":
+                "กรุณา Login KICK ก่อน"
+        }), 401
+
+    result = subscribe_kick_chat()
+
+    return jsonify(
+        result
+    ), (
+        200
+        if result.get("ok")
+        else 502
+    )
+
+
+@app.route(
+    "/api/kick/subscriptions"
+)
+def api_kick_subscriptions():
+
+    if not session.get(
+        "authenticated"
+    ):
+        return jsonify({
+            "ok": False,
+            "error":
+                "กรุณา Login KICK ก่อน"
+        }), 401
+
+    return jsonify(
+        get_kick_subscriptions()
+    )
 
 
 # ============================================================
@@ -592,6 +1075,554 @@ def _drain_ffmpeg_stderr(process):
             "FFmpeg stderr reader error: "
             + repr(exc)
         )
+
+
+
+# =========================================================
+# KICK CHAT -> MISTRAL -> TTS
+# =========================================================
+
+chat_worker_started = False
+chat_seen_ids = set()
+chat_seen_lock = threading.Lock()
+
+
+def _kick_chat_request(token):
+    """
+    Read current KICK chat messages.
+
+    The endpoint is configurable because KICK's chat API/version
+    can change. If KICK returns an unsupported endpoint/response,
+    the worker logs the exact response instead of crashing the app.
+    """
+    try:
+        response = requests.get(
+            KICK_CHAT_URL,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+            timeout=20,
+        )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "raw": response.text
+            }
+
+        return response.status_code, data
+
+    except Exception as exc:
+        print(
+            "KICK chat request error:",
+            repr(exc)
+        )
+        return 0, None
+
+
+def _extract_chat_messages(data):
+    """
+    Accept several common response shapes without assuming that
+    every KICK API version uses the same envelope.
+    """
+    if isinstance(data, list):
+        return data
+
+    if not isinstance(data, dict):
+        return []
+
+    for key in (
+        "data",
+        "messages",
+        "comments",
+        "chat",
+    ):
+        value = data.get(key)
+
+        if isinstance(value, list):
+            return value
+
+        if isinstance(value, dict):
+            for nested in (
+                "messages",
+                "data",
+                "items",
+            ):
+                items = value.get(nested)
+
+                if isinstance(items, list):
+                    return items
+
+    return []
+
+
+def _chat_message_id(message):
+    if not isinstance(message, dict):
+        return None
+
+    for key in (
+        "id",
+        "message_id",
+        "messageId",
+        "uuid",
+    ):
+        value = message.get(key)
+
+        if value is not None:
+            return str(value)
+
+    # Fallback for APIs that don't provide an ID.
+    author = (
+        message.get("username")
+        or message.get("user")
+        or message.get("sender")
+        or ""
+    )
+
+    if isinstance(author, dict):
+        author = (
+            author.get("username")
+            or author.get("name")
+            or author.get("id")
+            or ""
+        )
+
+    body = (
+        message.get("content")
+        or message.get("message")
+        or message.get("text")
+        or ""
+    )
+
+    timestamp = (
+        message.get("created_at")
+        or message.get("createdAt")
+        or message.get("timestamp")
+        or ""
+    )
+
+    if not body:
+        return None
+
+    return (
+        f"{author}|{timestamp}|{body}"
+    )
+
+
+def _chat_message_text(message):
+    if not isinstance(message, dict):
+        return ""
+
+    for key in (
+        "content",
+        "message",
+        "text",
+    ):
+        value = message.get(key)
+
+        if isinstance(value, str):
+            return value.strip()
+
+    return ""
+
+
+def _chat_author(message):
+    if not isinstance(message, dict):
+        return "ผู้ชม"
+
+    for key in (
+        "username",
+        "name",
+        "display_name",
+    ):
+        value = message.get(key)
+
+        if value:
+            return str(value)
+
+    for key in (
+        "user",
+        "sender",
+        "author",
+    ):
+        value = message.get(key)
+
+        if isinstance(value, dict):
+            return str(
+                value.get("username")
+                or value.get("name")
+                or value.get("display_name")
+                or "ผู้ชม"
+            )
+
+    return "ผู้ชม"
+
+
+def _answer_chat(author, message):
+    prompt = (
+        f"ผู้ชมชื่อ {author} พิมพ์ว่า: {message}\n\n"
+        "ตอบกลับผู้ชมเป็นภาษาไทยแบบเป็นธรรมชาติ "
+        "สั้น กระชับ เหมาะสำหรับ AI พูดออกเสียงในไลฟ์ "
+        "ไม่ต้องใส่เครื่องหมายคำพูด "
+        "ไม่ต้องพูดว่าในฐานะ AI "
+        "ถ้าไม่ใช่คำถาม ให้ตอบรับอย่างเป็นกันเอง"
+    )
+
+    return mistral_reply(prompt)
+
+
+def _kick_chat_worker():
+    global chat_seen_ids
+
+    while True:
+
+        token = session.get(
+            "access_token"
+        )
+
+        # Background workers cannot depend on Flask's request
+        # session context. Use the persisted token if available.
+        token = (
+            session.get("access_token")
+            if False
+            else None
+        )
+
+        token = os.getenv(
+            "KICK_ACCESS_TOKEN",
+            ""
+        ).strip()
+
+        if not token:
+            time.sleep(
+                KICK_CHAT_POLL_SECONDS
+            )
+            continue
+
+        status, data = _kick_chat_request(
+            token
+        )
+
+        if status != 200:
+            if status not in (401, 403, 404):
+                print(
+                    "KICK chat HTTP status:",
+                    status,
+                    redact(data)
+                )
+
+            time.sleep(
+                KICK_CHAT_POLL_SECONDS
+            )
+            continue
+
+        messages = _extract_chat_messages(
+            data
+        )
+
+        for message in messages:
+
+            message_id = (
+                _chat_message_id(message)
+            )
+
+            body = _chat_message_text(
+                message
+            )
+
+            if not message_id or not body:
+                continue
+
+            with chat_seen_lock:
+
+                if message_id in chat_seen_ids:
+                    continue
+
+                chat_seen_ids.add(
+                    message_id
+                )
+
+                # Keep memory bounded.
+                if len(chat_seen_ids) > 2000:
+                    chat_seen_ids = set(
+                        list(chat_seen_ids)[-1000:]
+                    )
+
+            # Don't answer our own/empty messages.
+            if len(body) > 500:
+                continue
+
+            try:
+
+                answer = _answer_chat(
+                    _chat_author(message),
+                    body
+                )
+
+                if answer:
+                    speak_ai(answer)
+
+            except Exception as exc:
+                print(
+                    "Chat AI error:",
+                    repr(exc)
+                )
+
+        time.sleep(
+            KICK_CHAT_POLL_SECONDS
+        )
+
+
+def start_chat_worker():
+    global chat_worker_started
+
+    if chat_worker_started:
+        return
+
+    chat_worker_started = True
+
+
+
+@app.route(
+    "/api/chat/status"
+)
+def chat_status():
+
+    return jsonify({
+        "ok": True,
+        "enabled": bool(
+            os.getenv(
+                "KICK_ACCESS_TOKEN",
+                ""
+            ).strip()
+        ),
+        "poll_seconds":
+            KICK_CHAT_POLL_SECONDS,
+        "messages_seen":
+            len(chat_seen_ids),
+        "note":
+            "KICK_CHAT_URL is configurable"
+    })
+
+
+# =========================================================
+# AI TTS -> LIVE AUDIO
+# =========================================================
+
+speech_queue = []
+speech_lock = threading.Lock()
+speech_worker_started = False
+
+
+def _tts_to_pcm(audio_bytes):
+    """Convert TTS audio to 48kHz stereo signed-16 PCM."""
+    if not audio_bytes:
+        return b""
+
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as wav:
+            channels = wav.getnchannels()
+            rate = wav.getframerate()
+            width = wav.getsampwidth()
+            frames = wav.readframes(wav.getnframes())
+
+        if channels == 2 and rate == 48000 and width == 2:
+            return frames
+
+    except Exception:
+        pass
+
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-i", "pipe:0",
+            "-f", "s16le",
+            "-ar", "48000",
+            "-ac", "2",
+            "pipe:1",
+        ],
+        input=audio_bytes,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=90,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.decode(
+                "utf-8",
+                errors="replace"
+            )[-3000:]
+        )
+
+    return result.stdout
+
+
+def speak_ai(text):
+    text = str(text or "").strip()
+
+    if not text:
+        return False
+
+    try:
+        response = requests.get(
+            TTS_URL,
+            params={
+                "text": text,
+                "voice": TTS_VOICE,
+            },
+            timeout=90,
+        )
+
+        response.raise_for_status()
+
+        pcm = _tts_to_pcm(
+            response.content
+        )
+
+        if not pcm:
+            return False
+
+        with speech_lock:
+            speech_queue.append(pcm)
+
+        return True
+
+    except Exception as exc:
+        print(
+            "AI TTS error:",
+            repr(exc)
+        )
+        return False
+
+
+def _speech_worker():
+    while True:
+
+        pcm = None
+
+        with speech_lock:
+            if speech_queue:
+                pcm = speech_queue.pop(0)
+
+        if pcm is None:
+            time.sleep(0.1)
+            continue
+
+        with ffmpeg_lock:
+            process = ffmpeg_process
+
+        if not process:
+            continue
+
+        if process.poll() is not None:
+            continue
+
+        try:
+            chunk_size = 48000 * 2 * 2 // 10
+
+            for offset in range(
+                0,
+                len(pcm),
+                chunk_size
+            ):
+
+                chunk = pcm[
+                    offset:
+                    offset + chunk_size
+                ]
+
+                with ffmpeg_lock:
+                    if (
+                        not ffmpeg_process
+                        or
+                        ffmpeg_process.poll()
+                        is not None
+                    ):
+                        break
+
+                    ffmpeg_process.stdin.write(
+                        chunk
+                    )
+
+                    ffmpeg_process.stdin.flush()
+
+        except Exception as exc:
+            print(
+                "AI speech pipe error:",
+                repr(exc)
+            )
+
+
+def start_speech_worker():
+    global speech_worker_started
+
+    if speech_worker_started:
+        return
+
+    speech_worker_started = True
+
+    threading.Thread(
+        target=_speech_worker,
+        daemon=True,
+        name="ai-speech-worker",
+    ).start()
+
+
+@app.route(
+    "/api/ai/speak",
+    methods=["POST"]
+)
+def api_ai_speak():
+
+    if not session.get("authenticated"):
+        return jsonify({
+            "ok": False,
+            "error": "Not logged in"
+        }), 401
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    text = str(
+        data.get("text", "")
+    ).strip()
+
+    if not text:
+        return jsonify({
+            "ok": False,
+            "error": "กรุณาระบุข้อความ"
+        }), 400
+
+    if len(text) > 1000:
+        return jsonify({
+            "ok": False,
+            "error": "ข้อความยาวเกิน 1000 ตัวอักษร"
+        }), 400
+
+    with ffmpeg_lock:
+        process = ffmpeg_process
+
+    if (
+        not process
+        or process.poll() is not None
+    ):
+        return jsonify({
+            "ok": False,
+            "error": "LIVE ยังไม่ทำงาน"
+        }), 409
+
+    ok = speak_ai(text)
+
+    return jsonify({
+        "ok": ok,
+        "text": text
+    })
 
 
 def start_ffmpeg_stream():
@@ -1242,12 +2273,17 @@ def callback():
 
     session.clear()
 
+    global kick_access_token
+    global kick_broadcaster_user_id
+
     session["authenticated"] = True
     session["access_token"] = access_token
     session["scope"] = data.get(
         "scope",
         ""
     )
+
+    kick_access_token = access_token
 
     if data.get("refresh_token"):
         session["refresh_token"] = data.get(
@@ -1269,6 +2305,20 @@ def callback():
             session["user"] = user
 
     start_background_workers()
+
+    # Determine the broadcaster and attempt the chat webhook
+    # subscription immediately after OAuth.
+    try:
+        subscribe_result = subscribe_kick_chat()
+        print(
+            "KICK chat subscription:",
+            redact(subscribe_result)
+        )
+    except Exception as exc:
+        print(
+            "KICK chat subscription error:",
+            repr(exc)
+        )
 
     return redirect("/dashboard")
 
@@ -1650,6 +2700,8 @@ def health():
 def logout():
 
     global ffmpeg_process
+    global kick_access_token
+    global kick_broadcaster_user_id
 
     with ffmpeg_lock:
 
@@ -1663,6 +2715,9 @@ def logout():
                 process.terminate()
         except Exception:
             pass
+
+    kick_access_token = ""
+    kick_broadcaster_user_id = None
 
     session.clear()
 
