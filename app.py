@@ -714,7 +714,7 @@ def process_kick_chat_event(payload):
 
 @app.route(
     "/api/kick/subscribe",
-    methods=["POST"]
+    methods=["GET", "POST"]
 )
 def api_kick_subscribe():
 
