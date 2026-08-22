@@ -418,7 +418,7 @@ def subscribe_kick_chat():
         broadcaster_id
     )
 
-    # ✅ เพิ่ม webhook_url ตามที่ KICK ต้องการ
+    # ✅ แก้ไข: เพิ่ม webhook_url ตามที่ KICK ต้องการ
     payload = {
         "broadcaster_user_id":
             kick_broadcaster_user_id,
@@ -1260,7 +1260,7 @@ def _answer_chat(author, message):
         "ถ้าไม่ใช่คำถาม ให้ตอบรับอย่างเป็นกันเอง"
     )
 
-    return mistral_generate(prompt)   # เรียกใช้ mistral_generate โดยตรง
+    return mistral_generate(prompt)
 
 
 def _kick_chat_worker():
@@ -1470,6 +1470,8 @@ def speak_ai(text):
         with speech_lock:
             speech_queue.append(pcm)
 
+        print(f"AI speech queued: {len(pcm)} bytes")  # Debug log
+
         return True
 
     except Exception as exc:
@@ -1497,13 +1499,15 @@ def _speech_worker():
             process = ffmpeg_process
 
         if not process:
+            print("No FFmpeg process, skipping speech")
             continue
 
         if process.poll() is not None:
+            print("FFmpeg process died, skipping speech")
             continue
 
         try:
-            chunk_size = 48000 * 2 * 2 // 10
+            chunk_size = 48000 * 2 * 2 // 10  # 100ms chunks
 
             for offset in range(
                 0,
@@ -1530,6 +1534,8 @@ def _speech_worker():
                     )
 
                     ffmpeg_process.stdin.flush()
+
+            print(f"Speech chunk sent: {len(pcm)} bytes")
 
         except Exception as exc:
             print(
@@ -2571,6 +2577,35 @@ def test_tts():
         return jsonify({
             "ok": False,
             "error": str(exc),
+        }), 500
+
+
+# ============================================================
+# TEST AUDIO PIPELINE (เพิ่มเพื่อ debug เสียง)
+# ============================================================
+
+@app.route("/api/test/audio")
+def test_audio():
+    """ทดสอบสร้างเสียงและส่งเข้า FFmpeg โดยตรง"""
+    try:
+        # ดาวน์โหลดเสียง TTS
+        audio = download_tts("สวัสดีครับ ทดสอบระบบเสียง")
+        
+        # แปลงเป็น PCM
+        pcm = audio_to_pcm(audio)
+        
+        # ส่งเข้า FFmpeg
+        write_pcm(pcm)
+        
+        return jsonify({
+            "ok": True,
+            "pcm_bytes": len(pcm),
+            "message": "ส่งเสียงเข้า FFmpeg แล้ว"
+        })
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "error": str(exc)
         }), 500
 
 
