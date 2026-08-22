@@ -345,11 +345,27 @@ def kick_json_request(
         }
 
 
+
+def current_kick_access_token():
+    """Return the current OAuth token from session first, then process state/env."""
+    token = session.get("access_token")
+    if token:
+        return str(token).strip()
+
+    if kick_access_token:
+        return str(kick_access_token).strip()
+
+    return os.getenv(
+        "KICK_ACCESS_TOKEN",
+        ""
+    ).strip()
+
+
 def subscribe_kick_chat():
 
     global kick_broadcaster_user_id
 
-    token = kick_access_token
+    token = current_kick_access_token()
 
     if not token:
         return {
@@ -446,7 +462,9 @@ def subscribe_kick_chat():
 
 def get_kick_subscriptions():
 
-    if not kick_access_token:
+    token = current_kick_access_token()
+
+    if not token:
         return {
             "ok": False,
             "error":
@@ -455,7 +473,7 @@ def get_kick_subscriptions():
 
     result = kick_get(
         "/events/subscriptions",
-        kick_access_token,
+        token,
     )
 
     return {
@@ -475,7 +493,9 @@ def send_kick_chat_message(
     reply_to_message_id=None,
 ):
 
-    if not kick_access_token:
+    token = current_kick_access_token()
+
+    if not token:
         return {
             "ok": False,
             "error":
