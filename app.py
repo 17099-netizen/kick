@@ -327,8 +327,14 @@ def get_stream_credentials():
 
     stream_url = normalize_kick_stream_url(stream_url)
 
+    # KICK ingest endpoint must contain /app/ before the stream key.
+    stream_url = stream_url.rstrip("/")
+
+    if not stream_url.endswith("/app"):
+        stream_url += "/app"
+
     target = (
-        stream_url.rstrip("/")
+        stream_url
         + "/"
         + stream_key
     )
@@ -702,6 +708,11 @@ def start_ffmpeg_stream():
                 f.write(
                     "Target: "
                     + redact({"target": target})["target"]
+                    + "\\n"
+                )
+                f.write(
+                    "Stream URL: "
+                    + stream_url
                     + "\\n"
                 )
         except Exception:
