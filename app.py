@@ -120,8 +120,6 @@ KICK_API_BASE = (
     "https://api.kick.com/public/v1"
 )
 
-# KICK chat endpoints can vary by API version/account.
-# Keep them configurable so the app can be updated without code changes.
 KICK_CHAT_URL = os.getenv(
     "KICK_CHAT_URL",
     "https://api.kick.com/public/v1/chat"
@@ -160,8 +158,6 @@ KICK_WEBHOOK_VERIFY = (
     == "true"
 )
 
-# The OAuth user token is kept server-side for webhook subscription
-# and chat replies. Do not expose it to the browser.
 kick_access_token = ""
 kick_broadcaster_user_id = None
 
@@ -422,7 +418,7 @@ def subscribe_kick_chat():
         broadcaster_id
     )
 
-    # ✅ แก้ไข: เพิ่ม webhook_url ใน payload ตามที่ KICK ต้องการ
+    # ✅ เพิ่ม webhook_url ตามที่ KICK ต้องการ
     payload = {
         "broadcaster_user_id":
             kick_broadcaster_user_id,
@@ -439,7 +435,7 @@ def subscribe_kick_chat():
         "method":
             "webhook",
 
-        "webhook_url":           # <--- บรรทัดนี้สำคัญ
+        "webhook_url":
             KICK_WEBHOOK_URL,
     }
 
@@ -548,8 +544,6 @@ def send_kick_chat_message(
     }
 
 
-# Keep the webhook receiver lightweight:
-# acknowledge immediately, then process the AI work in a thread.
 @app.route(
     "/webhook/kick",
     methods=["POST"]
@@ -575,12 +569,7 @@ def kick_webhook():
         ""
     )
 
-    # For first-stage testing, signature verification is optional.
-    # Enable KICK_WEBHOOK_VERIFY=true only after the public-key
-    # verification settings are configured for this deployment.
     if KICK_WEBHOOK_VERIFY:
-        # We deliberately fail closed here rather than pretending
-        # an unimplemented verifier is secure.
         return jsonify({
             "ok": False,
             "error":
@@ -618,7 +607,6 @@ def kick_webhook():
             name="kick-chat-ai",
         ).start()
 
-    # Acknowledge KICK immediately.
     return jsonify({
         "ok": True
     }), 200
@@ -660,11 +648,9 @@ def process_kick_chat_event(payload):
         if not content:
             return
 
-        # Do not answer an empty message.
         if len(content) > 500:
             return
 
-        # Make sure this event belongs to our authorized broadcaster.
         incoming_broadcaster_id = (
             broadcaster.get(
                 "user_id"
@@ -694,10 +680,8 @@ def process_kick_chat_event(payload):
             prompt
         )
 
-        # Put the answer into the live voice queue.
         speak_ai(answer)
 
-        # Also reply inside KICK chat.
         chat_result = send_kick_chat_message(
             answer,
             reply_to_message_id=message_id,
@@ -766,8 +750,6 @@ def api_kick_subscriptions():
 # ============================================================
 
 def normalize_kick_stream_url(url):
-    # KICK API already returns the ingest URL.
-    # Keep it intact, including :443.
     url = str(url or "").strip().rstrip("/")
 
     if url:
@@ -834,7 +816,6 @@ def get_stream_credentials():
 
     stream_url = normalize_kick_stream_url(stream_url)
 
-    # KICK ingest endpoint must contain /app/ before the stream key.
     stream_url = stream_url.rstrip("/")
 
     if not stream_url.endswith("/app"):
@@ -1066,15 +1047,12 @@ def _append_ffmpeg_log(text):
         except Exception:
             pass
 
-        # Keep the most recent error text available to the API.
         ffmpeg_last_error = (
             text[-15000:]
         )
 
 
 def _drain_ffmpeg_stderr(process):
-    # Continuously drain FFmpeg stderr so the pipe cannot fill.
-    # At the same time, persist the real FFmpeg error.
     try:
         while True:
             line = process.stderr.readline()
@@ -1112,13 +1090,6 @@ chat_seen_lock = threading.Lock()
 
 
 def _kick_chat_request(token):
-    """
-    Read current KICK chat messages.
-
-    The endpoint is configurable because KICK's chat API/version
-    can change. If KICK returns an unsupported endpoint/response,
-    the worker logs the exact response instead of crashing the app.
-    """
     try:
         response = requests.get(
             KICK_CHAT_URL,
@@ -1147,10 +1118,6 @@ def _kick_chat_request(token):
 
 
 def _extract_chat_messages(data):
-    """
-    Accept several common response shapes without assuming that
-    every KICK API version uses the same envelope.
-    """
     if isinstance(data, list):
         return data
 
@@ -1197,7 +1164,6 @@ def _chat_message_id(message):
         if value is not None:
             return str(value)
 
-    # Fallback for APIs that don't provide an ID.
     author = (
         message.get("username")
         or message.get("user")
@@ -1294,25 +1260,13 @@ def _answer_chat(author, message):
         "ถ้าไม่ใช่คำถาม ให้ตอบรับอย่างเป็นกันเอง"
     )
 
-    return mistral_reply(prompt)
+    return mistral_generate(prompt)   # เรียกใช้ mistral_generate โดยตรง
 
 
 def _kick_chat_worker():
     global chat_seen_ids
 
     while True:
-
-        token = session.get(
-            "access_token"
-        )
-
-        # Background workers cannot depend on Flask's request
-        # session context. Use the persisted token if available.
-        token = (
-            session.get("access_token")
-            if False
-            else None
-        )
 
         token = os.getenv(
             "KICK_ACCESS_TOKEN",
@@ -1368,13 +1322,11 @@ def _kick_chat_worker():
                     message_id
                 )
 
-                # Keep memory bounded.
                 if len(chat_seen_ids) > 2000:
                     chat_seen_ids = set(
                         list(chat_seen_ids)[-1000:]
                     )
 
-            # Don't answer our own/empty messages.
             if len(body) > 500:
                 continue
 
@@ -1407,6 +1359,11 @@ def start_chat_worker():
 
     chat_worker_started = True
 
+    threading.Thread(
+        target=_kick_chat_worker,
+        daemon=True,
+        name="kick-chat-worker",
+    ).start()
 
 
 @app.route(
@@ -1441,7 +1398,6 @@ speech_worker_started = False
 
 
 def _tts_to_pcm(audio_bytes):
-    """Convert TTS audio to 48kHz stereo signed-16 PCM."""
     if not audio_bytes:
         return b""
 
@@ -1678,19 +1634,16 @@ def start_ffmpeg_stream():
         "-hide_banner",
         "-loglevel", "warning",
 
-        # Stable 1280x720 video source
         "-re",
         "-f", "lavfi",
         "-i",
         "color=c=0x080D0A:s=1280x720:r=30",
 
-        # PCM audio supplied by the Python process
         "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-i", "pipe:0",
 
-        # Background + waveform
         "-filter_complex",
         (
             "[0:v]"
@@ -1721,7 +1674,6 @@ def start_ffmpeg_stream():
         "-map", "[outv]",
         "-map", "1:a",
 
-        # H.264
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-tune", "zerolatency",
@@ -1734,13 +1686,11 @@ def start_ffmpeg_stream():
         "-maxrate", "4500k",
         "-bufsize", "9000k",
 
-        # AAC
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "48000",
         "-ac", "2",
 
-        # KICK RTMPS
         "-rtmp_live", "live",
         "-flvflags", "no_duration_filesize",
         "-f", "flv",
@@ -1767,7 +1717,7 @@ def start_ffmpeg_stream():
                 )
                 f.write(
                     "Stream URL: "
-                    + stream_url
+                    + credentials["stream_url"]
                     + "\\n"
                 )
         except Exception:
@@ -1825,7 +1775,6 @@ def write_pcm(pcm):
 
 def silence_loop():
 
-    # 100 ms silence
     silence = (
         b"\x00\x00"
         * 2
@@ -2098,6 +2047,8 @@ def start_background_workers():
         name="audio-silence",
     ).start()
 
+    start_chat_worker()
+
 
 # ============================================================
 # HOME
@@ -2330,8 +2281,6 @@ def callback():
 
     start_background_workers()
 
-    # Determine the broadcaster and attempt the chat webhook
-    # subscription immediately after OAuth.
     try:
         subscribe_result = subscribe_kick_chat()
         print(
@@ -2496,42 +2445,64 @@ def api_stop():
 
 
 # ============================================================
-# STATUS
+# STATUS (ปรับปรุงให้ละเอียด)
 # ============================================================
+
+def get_detailed_status():
+    authenticated = bool(session.get("authenticated"))
+    access_token = session.get("access_token", "")
+    sub_status = {}
+    if authenticated and access_token:
+        sub_result = get_kick_subscriptions()
+        sub_status = {
+            "ok": sub_result.get("ok", False),
+            "data": sub_result.get("data"),
+            "has_subscription": bool(sub_result.get("data", {}).get("data"))
+        }
+    else:
+        sub_status = {"ok": False, "has_subscription": False}
+    
+    with ffmpeg_lock:
+        process = ffmpeg_process
+        live_running = process and process.poll() is None
+    
+    return {
+        "authenticated": authenticated,
+        "access_token_present": bool(access_token),
+        "live_running": live_running,
+        "mistral_configured": bool(MISTRAL_API_KEY),
+        "tts_configured": bool(TTS_URL),
+        "givedonate_configured": bool(GIVEDONATE_TOKEN),
+        "webhook_subscription": sub_status,
+        "chat_seen_count": len(chat_seen_ids),
+        "kick_broadcaster_user_id": kick_broadcaster_user_id,
+        "webhook_url": KICK_WEBHOOK_URL,
+    }
+
 
 @app.route("/api/status")
 def api_status():
+    status = get_detailed_status()
+    status["ok"] = True
+    return jsonify(status)
 
-    running = False
 
-    with ffmpeg_lock:
+@app.route("/status")
+def status_page():
+    if not session.get("authenticated"):
+        return redirect("/login")
+    return render_template("status.html")
 
-        if (
-            ffmpeg_process
-            and ffmpeg_process.poll() is None
-        ):
-            running = True
 
-    return jsonify({
-        "ok": True,
-        "live": running,
-        "authenticated":
-            bool(
-                session.get(
-                    "authenticated"
-                )
-            ),
-        "mistral":
-            bool(
-                MISTRAL_API_KEY
-            ),
-        "tts":
-            bool(TTS_URL),
-        "givedonate":
-            bool(
-                GIVEDONATE_TOKEN
-            ),
-    })
+# ============================================================
+# TEST PAGE
+# ============================================================
+
+@app.route("/test")
+def test_page():
+    if not session.get("authenticated"):
+        return redirect("/login")
+    return render_template("test.html")
 
 
 # ============================================================
