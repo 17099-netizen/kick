@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: kick-direct-live
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      - key: KICK_CLIENT_ID
+        sync: false
+      - key: KICK_CLIENT_SECRET
+        sync: false
+      - key: KICK_REDIRECT_URI
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: KICK_RTMPS_URL
+        value: "rtmps://fa723fc1b171.global-contribute.live-video.net:443/app"
+      - key: FFMPEG_BIN
+        value: "ffmpeg"
+      - key: X264_PRESET
+        value: "veryfast"
