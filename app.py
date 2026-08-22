@@ -29,10 +29,8 @@ app = Flask(__name__)
 # ============================================================
 
 APP_SECRET = os.getenv("APP_SECRET", "").strip()
-
 if not APP_SECRET:
     APP_SECRET = secrets.token_hex(32)
-
 app.secret_key = APP_SECRET
 
 app.config.update(
@@ -47,119 +45,55 @@ app.config.update(
 # MISTRAL
 # ============================================================
 
-MISTRAL_API_KEY = os.getenv(
-    "MISTRAL_API_KEY",
-    ""
-).strip()
-
-MISTRAL_MODEL = os.getenv(
-    "MISTRAL_MODEL",
-    "mistral-small-latest"
-).strip()
-
-MISTRAL_API_URL = (
-    "https://api.mistral.ai/v1/chat/completions"
-)
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
+MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 
 # ============================================================
 # GIVEDONATE
 # ============================================================
 
-GIVEDONATE_URL = os.getenv(
-    "GIVEDONATE_URL",
-    "https://givedonate.ct.ws/api/live_donations.php"
-).strip()
-
-GIVEDONATE_TOKEN = os.getenv(
-    "GIVEDONATE_TOKEN",
-    ""
-).strip()
+GIVEDONATE_URL = os.getenv("GIVEDONATE_URL", "https://givedonate.ct.ws/api/live_donations.php").strip()
+GIVEDONATE_TOKEN = os.getenv("GIVEDONATE_TOKEN", "").strip()
 
 # ============================================================
 # TTS
 # ============================================================
 
-TTS_URL = os.getenv(
-    "TTS_URL",
-    "https://donateplus.onrender.com/tts"
-).strip()
-
-TTS_VOICE = os.getenv(
-    "TTS_VOICE",
-    "th-female"
-).strip()
+TTS_URL = os.getenv("TTS_URL", "https://donateplus.onrender.com/tts").strip()
+TTS_VOICE = os.getenv("TTS_VOICE", "th-female").strip()
 
 # ============================================================
 # KICK
 # ============================================================
 
-KICK_CLIENT_ID = os.getenv(
-    "KICK_CLIENT_ID",
-    ""
-).strip()
+KICK_CLIENT_ID = os.getenv("KICK_CLIENT_ID", "").strip()
+KICK_CLIENT_SECRET = os.getenv("KICK_CLIENT_SECRET", "").strip()
+KICK_REDIRECT_URI = os.getenv("KICK_REDIRECT_URI", "https://kick-crka.onrender.com/callback").strip()
+KICK_AUTH_URL = "https://id.kick.com/oauth/authorize"
+KICK_TOKEN_URL = "https://id.kick.com/oauth/token"
+KICK_API_BASE = "https://api.kick.com/public/v1"
+KICK_CHAT_URL = os.getenv("KICK_CHAT_URL", "https://api.kick.com/public/v1/chat")
+KICK_CHAT_POLL_SECONDS = float(os.getenv("KICK_CHAT_POLL_SECONDS", "2"))
+KICK_STREAM_URL = os.getenv("KICK_STREAM_URL", "rtmps://fa723fc1b171.global-contribute.live-video.net:443/app").strip()
 
-KICK_CLIENT_SECRET = os.getenv(
-    "KICK_CLIENT_SECRET",
-    ""
-).strip()
+KICK_SCOPES = ["user:read", "channel:read", "streamkey:read", "chat:write", "events:subscribe"]
 
-KICK_REDIRECT_URI = os.getenv(
-    "KICK_REDIRECT_URI",
-    "https://kick-crka.onrender.com/callback"
-).strip()
-
-KICK_AUTH_URL = (
-    "https://id.kick.com/oauth/authorize"
-)
-
-KICK_TOKEN_URL = (
-    "https://id.kick.com/oauth/token"
-)
-
-KICK_API_BASE = (
-    "https://api.kick.com/public/v1"
-)
-
-KICK_CHAT_URL = os.getenv(
-    "KICK_CHAT_URL",
-    "https://api.kick.com/public/v1/chat"
-)
-
-KICK_CHAT_POLL_SECONDS = float(
-    os.getenv(
-        "KICK_CHAT_POLL_SECONDS",
-        "2"
-    )
-)
-
-KICK_STREAM_URL = os.getenv(
-    "KICK_STREAM_URL",
-    "rtmps://fa723fc1b171.global-contribute.live-video.net:443/app"
-).strip()
-
-KICK_SCOPES = [
-    "user:read",
-    "channel:read",
-    "streamkey:read",
-    "chat:write",
-    "events:subscribe",
-]
-
-KICK_WEBHOOK_URL = os.getenv(
-    "KICK_WEBHOOK_URL",
-    "https://kick-crka.onrender.com/webhook/kick"
-).strip()
-
-KICK_WEBHOOK_VERIFY = (
-    os.getenv(
-        "KICK_WEBHOOK_VERIFY",
-        "false"
-    ).strip().lower()
-    == "true"
-)
+KICK_WEBHOOK_URL = os.getenv("KICK_WEBHOOK_URL", "https://kick-crka.onrender.com/webhook/kick").strip()
+KICK_WEBHOOK_VERIFY = os.getenv("KICK_WEBHOOK_VERIFY", "false").strip().lower() == "true"
 
 kick_access_token = ""
 kick_broadcaster_user_id = None
+
+# ============================================================
+# SLIDE IMAGES (hardcoded URLs from user)
+# ============================================================
+
+SLIDE_IMAGE_URLS = [
+    "https://i.postimg.cc/GhfQBcJ8/Chat-GPT-Image-23-s-kh-2569-03-49-47.png",
+    "https://i.postimg.cc/MKLDcWbK/Chat-GPT-Image-23-s-kh-2569-03-54-13.png"
+]
+SLIDE_PATHS = ["/tmp/slide1.jpg", "/tmp/slide2.jpg"]
 
 # ============================================================
 # GLOBAL STATE
@@ -167,583 +101,197 @@ kick_broadcaster_user_id = None
 
 ffmpeg_process = None
 ffmpeg_lock = threading.Lock()
-
 audio_write_lock = threading.Lock()
-
 event_queue = queue.Queue()
-
 background_threads_started = False
 background_threads_lock = threading.Lock()
-
 
 # ============================================================
 # SECURITY
 # ============================================================
 
 def redact(value):
-    sensitive_keys = {
-        "access_token",
-        "refresh_token",
-        "client_secret",
-        "authorization",
-        "stream_key",
-        "streamkey",
-        "token",
-    }
-
+    sensitive_keys = {"access_token", "refresh_token", "client_secret", "authorization", "stream_key", "streamkey", "token"}
     if isinstance(value, dict):
         output = {}
-
         for key, item in value.items():
-
-            if str(key).lower() in {
-                x.lower() for x in sensitive_keys
-            }:
-
-                if str(key).lower() in {
-                    "stream_key",
-                    "streamkey",
-                }:
-                    output[key] = (
-                        "[REDACTED: key exists]"
-                        if item
-                        else ""
-                    )
+            if str(key).lower() in {x.lower() for x in sensitive_keys}:
+                if str(key).lower() in {"stream_key", "streamkey"}:
+                    output[key] = "[REDACTED: key exists]" if item else ""
                 else:
                     output[key] = "[REDACTED]"
-
             else:
                 output[key] = redact(item)
-
         return output
-
     if isinstance(value, list):
         return [redact(x) for x in value]
-
     return value
 
-
 def first_object(data):
-
     if isinstance(data, list):
         return data[0] if data else None
-
     if isinstance(data, dict):
-
         value = data.get("data")
-
         if isinstance(value, list):
             return value[0] if value else None
-
         if isinstance(value, dict):
             return value
-
         return data
-
     return None
-
 
 # ============================================================
 # KICK API
 # ============================================================
 
 def kick_headers(token):
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-    }
-
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 def kick_get(path, token, params=None):
-
     try:
-        response = requests.get(
-            KICK_API_BASE + path,
-            headers=kick_headers(token),
-            params=params,
-            timeout=30,
-        )
+        response = requests.get(KICK_API_BASE + path, headers=kick_headers(token), params=params, timeout=30)
     except requests.RequestException as exc:
-        return {
-            "ok": False,
-            "status": 0,
-            "error": str(exc),
-            "data": None,
-            "text": "",
-        }
-
+        return {"ok": False, "status": 0, "error": str(exc), "data": None, "text": ""}
     try:
         data = response.json()
     except Exception:
         data = None
-
-    return {
-        "ok": response.ok,
-        "status": response.status_code,
-        "error": None,
-        "data": data,
-        "text": response.text,
-    }
-
+    return {"ok": response.ok, "status": response.status_code, "error": None, "data": data, "text": response.text}
 
 # ============================================================
 # KICK EVENTS / CHAT
 # ============================================================
 
-def kick_json_request(
-    method,
-    path,
-    token,
-    payload=None,
-):
+def kick_json_request(method, path, token, payload=None):
     try:
         response = requests.request(
             method,
             KICK_API_BASE + path,
-            headers={
-                "Authorization":
-                    f"Bearer {token}",
-                "Accept":
-                    "application/json",
-                "Content-Type":
-                    "application/json",
-            },
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"},
             json=payload,
             timeout=30,
         )
-
         try:
             data = response.json()
         except Exception:
-            data = {
-                "raw":
-                    response.text
-            }
-
-        return {
-            "ok": response.ok,
-            "status":
-                response.status_code,
-            "data":
-                data,
-            "text":
-                response.text,
-        }
-
+            data = {"raw": response.text}
+        return {"ok": response.ok, "status": response.status_code, "data": data, "text": response.text}
     except requests.RequestException as exc:
-
-        return {
-            "ok": False,
-            "status": 0,
-            "error":
-                str(exc),
-            "data": None,
-        }
-
-
+        return {"ok": False, "status": 0, "error": str(exc), "data": None}
 
 def current_kick_access_token():
-    """Return the current OAuth token from session first, then process state/env."""
     token = session.get("access_token")
     if token:
         return str(token).strip()
-
     if kick_access_token:
         return str(kick_access_token).strip()
-
-    return os.getenv(
-        "KICK_ACCESS_TOKEN",
-        ""
-    ).strip()
-
+    return os.getenv("KICK_ACCESS_TOKEN", "").strip()
 
 def subscribe_kick_chat():
-
     global kick_broadcaster_user_id
-
     token = current_kick_access_token()
-
     if not token:
-        return {
-            "ok": False,
-            "error":
-                "No authenticated KICK access token."
-        }
-
-    channel_result = kick_get(
-        "/channels",
-        token,
-    )
-
+        return {"ok": False, "error": "No authenticated KICK access token."}
+    channel_result = kick_get("/channels", token)
     if not channel_result["ok"]:
-        return {
-            "ok": False,
-            "error":
-                "Unable to read KICK channel.",
-            "details":
-                redact(channel_result),
-        }
-
-    channel = first_object(
-        channel_result.get("data")
-    )
-
-    if not isinstance(
-        channel,
-        dict,
-    ):
-        return {
-            "ok": False,
-            "error":
-                "KICK did not return channel information."
-        }
-
-    broadcaster_id = (
-        channel.get(
-            "broadcaster_user_id"
-        )
-        or channel.get(
-            "user_id"
-        )
-    )
-
+        return {"ok": False, "error": "Unable to read KICK channel.", "details": redact(channel_result)}
+    channel = first_object(channel_result.get("data"))
+    if not isinstance(channel, dict):
+        return {"ok": False, "error": "KICK did not return channel information."}
+    broadcaster_id = channel.get("broadcaster_user_id") or channel.get("user_id")
     if not broadcaster_id:
-        return {
-            "ok": False,
-            "error":
-                "Could not determine broadcaster_user_id."
-        }
-
-    kick_broadcaster_user_id = int(
-        broadcaster_id
-    )
-
-    # ✅ แก้ไข: เพิ่ม webhook_url ตามที่ KICK ต้องการ
+        return {"ok": False, "error": "Could not determine broadcaster_user_id."}
+    kick_broadcaster_user_id = int(broadcaster_id)
     payload = {
-        "broadcaster_user_id":
-            kick_broadcaster_user_id,
-
-        "events": [
-            {
-                "name":
-                    "chat.message.sent",
-                "version":
-                    1,
-            }
-        ],
-
-        "method":
-            "webhook",
-
-        "webhook_url":
-            KICK_WEBHOOK_URL,
+        "broadcaster_user_id": kick_broadcaster_user_id,
+        "events": [{"name": "chat.message.sent", "version": 1}],
+        "method": "webhook",
+        "webhook_url": KICK_WEBHOOK_URL,
     }
-
-    result = kick_json_request(
-        "POST",
-        "/events/subscriptions",
-        token,
-        payload,
-    )
-
+    result = kick_json_request("POST", "/events/subscriptions", token, payload)
     return {
-        "ok":
-            result["ok"],
-        "status":
-            result["status"],
-        "data":
-            redact(result.get("data")),
-        "webhook_url":
-            KICK_WEBHOOK_URL,
-        "broadcaster_user_id":
-            kick_broadcaster_user_id,
+        "ok": result["ok"],
+        "status": result["status"],
+        "data": redact(result.get("data")),
+        "webhook_url": KICK_WEBHOOK_URL,
+        "broadcaster_user_id": kick_broadcaster_user_id,
     }
-
 
 def get_kick_subscriptions():
-
     token = current_kick_access_token()
-
     if not token:
-        return {
-            "ok": False,
-            "error":
-                "No authenticated KICK access token."
-        }
+        return {"ok": False, "error": "No authenticated KICK access token."}
+    result = kick_get("/events/subscriptions", token)
+    return {"ok": result["ok"], "status": result["status"], "data": redact(result.get("data")), "text": result.get("text", "")}
 
-    result = kick_get(
-        "/events/subscriptions",
-        token,
-    )
-
-    return {
-        "ok":
-            result["ok"],
-        "status":
-            result["status"],
-        "data":
-            redact(result.get("data")),
-        "text":
-            result.get("text", ""),
-    }
-
-
-def send_kick_chat_message(
-    content,
-    reply_to_message_id=None,
-):
-
+def send_kick_chat_message(content, reply_to_message_id=None):
     token = current_kick_access_token()
-
     if not token:
-        return {
-            "ok": False,
-            "error":
-                "No authenticated KICK access token."
-        }
-
+        return {"ok": False, "error": "No authenticated KICK access token."}
     if kick_broadcaster_user_id is None:
-        return {
-            "ok": False,
-            "error":
-                "No broadcaster_user_id."
-        }
-
+        return {"ok": False, "error": "No broadcaster_user_id."}
     payload = {
-        "type":
-            "user",
-
-        "broadcaster_user_id":
-            int(kick_broadcaster_user_id),
-
-        "content":
-            str(content)[:500],
+        "type": "user",
+        "broadcaster_user_id": int(kick_broadcaster_user_id),
+        "content": str(content)[:500],
     }
-
     if reply_to_message_id:
-        payload[
-            "reply_to_message_id"
-        ] = str(
-            reply_to_message_id
-        )
+        payload["reply_to_message_id"] = str(reply_to_message_id)
+    result = kick_json_request("POST", "/chat", kick_access_token, payload)
+    return {"ok": result["ok"], "status": result["status"], "data": redact(result.get("data"))}
 
-    result = kick_json_request(
-        "POST",
-        "/chat",
-        kick_access_token,
-        payload,
-    )
-
-    return {
-        "ok":
-            result["ok"],
-        "status":
-            result["status"],
-        "data":
-            redact(result.get("data")),
-    }
-
-
-@app.route(
-    "/webhook/kick",
-    methods=["POST"]
-)
+@app.route("/webhook/kick", methods=["POST"])
 def kick_webhook():
-
-    raw_body = request.get_data(
-        cache=True
-    )
-
-    event_type = request.headers.get(
-        "Kick-Event-Type",
-        ""
-    )
-
-    event_version = request.headers.get(
-        "Kick-Event-Version",
-        ""
-    )
-
-    event_message_id = request.headers.get(
-        "Kick-Event-Message-Id",
-        ""
-    )
-
+    raw_body = request.get_data(cache=True)
+    event_type = request.headers.get("Kick-Event-Type", "")
+    event_version = request.headers.get("Kick-Event-Version", "")
+    event_message_id = request.headers.get("Kick-Event-Message-Id", "")
     if KICK_WEBHOOK_VERIFY:
-        return jsonify({
-            "ok": False,
-            "error":
-                "Webhook signature verification is enabled but "
-                "not configured in this build."
-        }), 501
-
+        return jsonify({"ok": False, "error": "Webhook signature verification is enabled but not configured."}), 501
     try:
-        payload = json.loads(
-            raw_body.decode(
-                "utf-8",
-                errors="replace"
-            )
-        )
+        payload = json.loads(raw_body.decode("utf-8", errors="replace"))
     except Exception:
-        return jsonify({
-            "ok": False,
-            "error":
-                "Invalid JSON"
-        }), 400
-
-    print(
-        "KICK WEBHOOK:",
-        event_type,
-        event_version,
-        event_message_id,
-    )
-
+        return jsonify({"ok": False, "error": "Invalid JSON"}), 400
+    print("KICK WEBHOOK:", event_type, event_version, event_message_id)
     if event_type == "chat.message.sent":
-
-        threading.Thread(
-            target=process_kick_chat_event,
-            args=(payload,),
-            daemon=True,
-            name="kick-chat-ai",
-        ).start()
-
-    return jsonify({
-        "ok": True
-    }), 200
-
+        threading.Thread(target=process_kick_chat_event, args=(payload,), daemon=True, name="kick-chat-ai").start()
+    return jsonify({"ok": True}), 200
 
 def process_kick_chat_event(payload):
-
     try:
-
-        sender = payload.get(
-            "sender"
-        ) or {}
-
-        broadcaster = payload.get(
-            "broadcaster"
-        ) or {}
-
-        username = (
-            sender.get(
-                "username"
-            )
-            or sender.get(
-                "name"
-            )
-            or "ผู้ชม"
-        )
-
-        content = str(
-            payload.get(
-                "content",
-                ""
-            )
-        ).strip()
-
-        message_id = payload.get(
-            "message_id"
-        )
-
-        if not content:
+        sender = payload.get("sender") or {}
+        broadcaster = payload.get("broadcaster") or {}
+        username = sender.get("username") or sender.get("name") or "ผู้ชม"
+        content = str(payload.get("content", "")).strip()
+        message_id = payload.get("message_id")
+        if not content or len(content) > 500:
             return
-
-        if len(content) > 500:
+        incoming_broadcaster_id = broadcaster.get("user_id")
+        if kick_broadcaster_user_id and incoming_broadcaster_id and int(incoming_broadcaster_id) != int(kick_broadcaster_user_id):
             return
-
-        incoming_broadcaster_id = (
-            broadcaster.get(
-                "user_id"
-            )
-        )
-
-        if (
-            kick_broadcaster_user_id
-            and incoming_broadcaster_id
-            and int(incoming_broadcaster_id)
-            != int(kick_broadcaster_user_id)
-        ):
-            return
-
         prompt = (
-            f"ผู้ชมชื่อ {username} "
-            f"ส่งข้อความว่า: {content}\n\n"
-            "ตอบกลับเป็นภาษาไทยแบบเป็นธรรมชาติ "
-            "สั้น กระชับ เหมาะสำหรับพูดในไลฟ์ "
-            "ประมาณ 1 ถึง 3 ประโยค "
-            "ไม่ต้องใช้ Markdown "
-            "ไม่ต้องพูดว่าเป็น AI "
-            "และอย่าใส่คำอธิบายระบบ"
+            f"ผู้ชมชื่อ {username} ส่งข้อความว่า: {content}\n\n"
+            "ตอบกลับเป็นภาษาไทยแบบเป็นธรรมชาติ สั้น กระชับ เหมาะสำหรับพูดในไลฟ์ "
+            "ประมาณ 1 ถึง 3 ประโยค ไม่ต้องใช้ Markdown ไม่ต้องพูดว่าเป็น AI และอย่าใส่คำอธิบายระบบ"
         )
-
-        answer = mistral_generate(
-            prompt
-        )
-
+        answer = mistral_generate(prompt)
         speak_ai(answer)
-
-        chat_result = send_kick_chat_message(
-            answer,
-            reply_to_message_id=message_id,
-        )
-
-        print(
-            "KICK AI reply:",
-            redact(chat_result)
-        )
-
+        chat_result = send_kick_chat_message(answer, reply_to_message_id=message_id)
+        print("KICK AI reply:", redact(chat_result))
     except Exception as exc:
+        print("KICK chat AI error:", repr(exc))
 
-        print(
-            "KICK chat AI error:",
-            repr(exc)
-        )
-
-
-@app.route(
-    "/api/kick/subscribe",
-    methods=["GET", "POST"]
-)
+@app.route("/api/kick/subscribe", methods=["GET", "POST"])
 def api_kick_subscribe():
-
-    if not session.get(
-        "authenticated"
-    ):
-        return jsonify({
-            "ok": False,
-            "error":
-                "กรุณา Login KICK ก่อน"
-        }), 401
-
+    if not session.get("authenticated"):
+        return jsonify({"ok": False, "error": "กรุณา Login KICK ก่อน"}), 401
     result = subscribe_kick_chat()
+    return jsonify(result), 200 if result.get("ok") else 502
 
-    return jsonify(
-        result
-    ), (
-        200
-        if result.get("ok")
-        else 502
-    )
-
-
-@app.route(
-    "/api/kick/subscriptions"
-)
+@app.route("/api/kick/subscriptions")
 def api_kick_subscriptions():
-
-    if not session.get(
-        "authenticated"
-    ):
-        return jsonify({
-            "ok": False,
-            "error":
-                "กรุณา Login KICK ก่อน"
-        }), 401
-
-    return jsonify(
-        get_kick_subscriptions()
-    )
-
+    if not session.get("authenticated"):
+        return jsonify({"ok": False, "error": "กรุณา Login KICK ก่อน"}), 401
+    return jsonify(get_kick_subscriptions())
 
 # ============================================================
 # KICK STREAM URL
@@ -751,108 +299,48 @@ def api_kick_subscriptions():
 
 def normalize_kick_stream_url(url):
     url = str(url or "").strip().rstrip("/")
-
-    if url:
-        return url
-
-    return KICK_STREAM_URL.rstrip("/")
-
+    return url if url else KICK_STREAM_URL.rstrip("/")
 
 def get_stream_credentials():
-
     token = session.get("access_token")
-
     if not token:
-        return {
-            "ok": False,
-            "error": "Not logged in.",
-        }
-
-    result = kick_get(
-        "/channels",
-        token,
-    )
-
+        return {"ok": False, "error": "Not logged in."}
+    result = kick_get("/channels", token)
     if not result["ok"]:
-        return {
-            "ok": False,
-            "error": "KICK /channels failed.",
-            "status": result["status"],
-            "response": redact(
-                result["data"]
-                if result["data"] is not None
-                else result["text"]
-            ),
-        }
-
+        return {"ok": False, "error": "KICK /channels failed.", "status": result["status"], "response": redact(result["data"] if result["data"] is not None else result["text"])}
     channel = first_object(result["data"])
-
     if not isinstance(channel, dict):
-        return {
-            "ok": False,
-            "error": "No channel data.",
-            "response": redact(result["data"]),
-        }
-
+        return {"ok": False, "error": "No channel data.", "response": redact(result["data"])}
     stream = channel.get("stream")
-
     if not isinstance(stream, dict):
         stream = {}
-
-    stream_key = str(
-        stream.get("key", "") or ""
-    ).strip()
-
-    stream_url = str(
-        stream.get("url", "") or ""
-    ).strip()
-
+    stream_key = str(stream.get("key", "") or "").strip()
+    stream_url = str(stream.get("url", "") or "").strip()
     if not stream_key:
-        return {
-            "ok": False,
-            "error": "KICK returned empty stream key.",
-            "response": redact(result["data"]),
-        }
-
+        return {"ok": False, "error": "KICK returned empty stream key.", "response": redact(result["data"])}
     stream_url = normalize_kick_stream_url(stream_url)
-
     stream_url = stream_url.rstrip("/")
-
     if not stream_url.endswith("/app"):
         stream_url += "/app"
-
-    target = (
-        stream_url
-        + "/"
-        + stream_key
-    )
-
+    target = stream_url + "/" + stream_key
     return {
         "ok": True,
         "stream_key": stream_key,
         "stream_url": stream_url,
         "target": target,
         "slug": channel.get("slug"),
-        "broadcaster_user_id": channel.get(
-            "broadcaster_user_id"
-        ),
+        "broadcaster_user_id": channel.get("broadcaster_user_id"),
     }
-
 
 # ============================================================
 # MISTRAL
 # ============================================================
 
 def mistral_generate(user_text):
-
     if not MISTRAL_API_KEY:
-        raise RuntimeError(
-            "MISTRAL_API_KEY is missing."
-        )
-
+        raise RuntimeError("MISTRAL_API_KEY is missing.")
     system_prompt = """
 คุณเป็น AI สตรีมเมอร์ภาษาไทย
-
 หน้าที่:
 - ตอบคำถามของคนดูแบบเป็นธรรมชาติ
 - ตอบสั้น กระชับ เหมาะกับการพูดออกเสียง
@@ -865,159 +353,77 @@ def mistral_generate(user_text):
 - ถ้ามีคำถาม ให้ตอบคำถามก่อน
 - อย่าตอบยาวเกินความจำเป็น
 """
-
     payload = {
         "model": MISTRAL_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": user_text,
-            },
-        ],
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}],
         "temperature": 0.8,
         "max_tokens": 180,
     }
-
-    response = requests.post(
-        MISTRAL_API_URL,
-        headers={
-            "Authorization": (
-                f"Bearer {MISTRAL_API_KEY}"
-            ),
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=60,
-    )
-
+    response = requests.post(MISTRAL_API_URL, headers={"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}, json=payload, timeout=60)
     try:
         data = response.json()
     except Exception:
         data = {}
-
     if not response.ok:
-        raise RuntimeError(
-            f"Mistral API error "
-            f"{response.status_code}: "
-            f"{redact(data)}"
-        )
-
+        raise RuntimeError(f"Mistral API error {response.status_code}: {redact(data)}")
     choices = data.get("choices", [])
-
     if not choices:
-        raise RuntimeError(
-            "Mistral returned no choices."
-        )
-
-    message = choices[0].get(
-        "message",
-        {}
-    )
-
-    content = message.get(
-        "content",
-        ""
-    )
-
+        raise RuntimeError("Mistral returned no choices.")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
     if isinstance(content, list):
-        content = " ".join(
-            str(x.get("text", ""))
-            for x in content
-            if isinstance(x, dict)
-        )
-
+        content = " ".join(str(x.get("text", "")) for x in content if isinstance(x, dict))
     answer = str(content or "").strip()
-
     if not answer:
-        raise RuntimeError(
-            "Mistral returned empty text."
-        )
-
+        raise RuntimeError("Mistral returned empty text.")
     return answer
-
 
 # ============================================================
 # TTS
 # ============================================================
 
 def download_tts(text):
-
-    response = requests.get(
-        TTS_URL,
-        params={
-            "text": text,
-            "voice": TTS_VOICE,
-        },
-        timeout=90,
-    )
-
+    response = requests.get(TTS_URL, params={"text": text, "voice": TTS_VOICE}, timeout=90)
     response.raise_for_status()
-
-    content_type = (
-        response.headers
-        .get("Content-Type", "")
-        .lower()
-    )
-
-    if not (
-        "audio/" in content_type
-        or response.content[:3] == b"ID3"
-        or response.content[:2] == b"\xff\xfb"
-    ):
-        raise RuntimeError(
-            "TTS endpoint did not return audio. "
-            f"Content-Type: {content_type}"
-        )
-
+    content_type = response.headers.get("Content-Type", "").lower()
+    if not ("audio/" in content_type or response.content[:3] == b"ID3" or response.content[:2] == b"\xff\xfb"):
+        raise RuntimeError(f"TTS endpoint did not return audio. Content-Type: {content_type}")
     return response.content
-
 
 # ============================================================
 # AUDIO → PCM
 # ============================================================
 
 def audio_to_pcm(audio_bytes):
-
     process = subprocess.Popen(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            "pipe:0",
-            "-f",
-            "s16le",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "pipe:1",
-        ],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-
-    stdout, stderr = process.communicate(
-        audio_bytes
-    )
-
+    stdout, stderr = process.communicate(audio_bytes)
     if process.returncode != 0:
-        raise RuntimeError(
-            "Audio decode failed: "
-            + stderr.decode(
-                "utf-8",
-                errors="replace"
-            )
-        )
-
+        raise RuntimeError("Audio decode failed: " + stderr.decode("utf-8", errors="replace"))
     return stdout
 
+# ============================================================
+# DOWNLOAD SLIDE IMAGES
+# ============================================================
+
+def ensure_slide_images():
+    """ดาวน์โหลดรูปภาพจาก URL ที่กำหนด ถ้ายังไม่มีในเครื่อง"""
+    for idx, url in enumerate(SLIDE_IMAGE_URLS):
+        path = SLIDE_PATHS[idx]
+        if not os.path.exists(path):
+            try:
+                print(f"Downloading slide image {idx+1} from {url}")
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+                with open(path, "wb") as f:
+                    f.write(resp.content)
+                print(f"Saved to {path}")
+            except Exception as e:
+                print(f"Failed to download slide {idx+1}: {e}")
+                # ใช้รูปสีดำสำรอง
+                subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=1", "-frames:v", "1", path], check=False)
 
 # ============================================================
 # FFMPEG LIVE
@@ -1027,676 +433,95 @@ FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
 ffmpeg_last_error = ""
 ffmpeg_log_lock = threading.Lock()
 
-
 def _append_ffmpeg_log(text):
     global ffmpeg_last_error
-
     if not text:
         return
-
     with ffmpeg_log_lock:
         try:
-            with open(
-                FFMPEG_LOG_PATH,
-                "a",
-                encoding="utf-8"
-            ) as f:
+            with open(FFMPEG_LOG_PATH, "a", encoding="utf-8") as f:
                 f.write(text)
                 if not text.endswith("\n"):
                     f.write("\n")
         except Exception:
             pass
-
-        ffmpeg_last_error = (
-            text[-15000:]
-        )
-
+        ffmpeg_last_error = text[-15000:]
 
 def _drain_ffmpeg_stderr(process):
     try:
         while True:
             line = process.stderr.readline()
-
             if not line:
                 break
-
-            decoded = line.decode(
-                "utf-8",
-                errors="replace"
-            )
-
-            print(
-                "[FFmpeg]",
-                decoded.rstrip()
-            )
-
+            decoded = line.decode("utf-8", errors="replace")
+            print("[FFmpeg]", decoded.rstrip())
             _append_ffmpeg_log(decoded)
-
     except Exception as exc:
-        _append_ffmpeg_log(
-            "FFmpeg stderr reader error: "
-            + repr(exc)
-        )
-
-
-
-# =========================================================
-# KICK CHAT -> MISTRAL -> TTS
-# =========================================================
-
-chat_worker_started = False
-chat_seen_ids = set()
-chat_seen_lock = threading.Lock()
-
-
-def _kick_chat_request(token):
-    try:
-        response = requests.get(
-            KICK_CHAT_URL,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json",
-            },
-            timeout=20,
-        )
-
-        try:
-            data = response.json()
-        except Exception:
-            data = {
-                "raw": response.text
-            }
-
-        return response.status_code, data
-
-    except Exception as exc:
-        print(
-            "KICK chat request error:",
-            repr(exc)
-        )
-        return 0, None
-
-
-def _extract_chat_messages(data):
-    if isinstance(data, list):
-        return data
-
-    if not isinstance(data, dict):
-        return []
-
-    for key in (
-        "data",
-        "messages",
-        "comments",
-        "chat",
-    ):
-        value = data.get(key)
-
-        if isinstance(value, list):
-            return value
-
-        if isinstance(value, dict):
-            for nested in (
-                "messages",
-                "data",
-                "items",
-            ):
-                items = value.get(nested)
-
-                if isinstance(items, list):
-                    return items
-
-    return []
-
-
-def _chat_message_id(message):
-    if not isinstance(message, dict):
-        return None
-
-    for key in (
-        "id",
-        "message_id",
-        "messageId",
-        "uuid",
-    ):
-        value = message.get(key)
-
-        if value is not None:
-            return str(value)
-
-    author = (
-        message.get("username")
-        or message.get("user")
-        or message.get("sender")
-        or ""
-    )
-
-    if isinstance(author, dict):
-        author = (
-            author.get("username")
-            or author.get("name")
-            or author.get("id")
-            or ""
-        )
-
-    body = (
-        message.get("content")
-        or message.get("message")
-        or message.get("text")
-        or ""
-    )
-
-    timestamp = (
-        message.get("created_at")
-        or message.get("createdAt")
-        or message.get("timestamp")
-        or ""
-    )
-
-    if not body:
-        return None
-
-    return (
-        f"{author}|{timestamp}|{body}"
-    )
-
-
-def _chat_message_text(message):
-    if not isinstance(message, dict):
-        return ""
-
-    for key in (
-        "content",
-        "message",
-        "text",
-    ):
-        value = message.get(key)
-
-        if isinstance(value, str):
-            return value.strip()
-
-    return ""
-
-
-def _chat_author(message):
-    if not isinstance(message, dict):
-        return "ผู้ชม"
-
-    for key in (
-        "username",
-        "name",
-        "display_name",
-    ):
-        value = message.get(key)
-
-        if value:
-            return str(value)
-
-    for key in (
-        "user",
-        "sender",
-        "author",
-    ):
-        value = message.get(key)
-
-        if isinstance(value, dict):
-            return str(
-                value.get("username")
-                or value.get("name")
-                or value.get("display_name")
-                or "ผู้ชม"
-            )
-
-    return "ผู้ชม"
-
-
-def _answer_chat(author, message):
-    prompt = (
-        f"ผู้ชมชื่อ {author} พิมพ์ว่า: {message}\n\n"
-        "ตอบกลับผู้ชมเป็นภาษาไทยแบบเป็นธรรมชาติ "
-        "สั้น กระชับ เหมาะสำหรับ AI พูดออกเสียงในไลฟ์ "
-        "ไม่ต้องใส่เครื่องหมายคำพูด "
-        "ไม่ต้องพูดว่าในฐานะ AI "
-        "ถ้าไม่ใช่คำถาม ให้ตอบรับอย่างเป็นกันเอง"
-    )
-
-    return mistral_generate(prompt)
-
-
-def _kick_chat_worker():
-    global chat_seen_ids
-
-    while True:
-
-        token = os.getenv(
-            "KICK_ACCESS_TOKEN",
-            ""
-        ).strip()
-
-        if not token:
-            time.sleep(
-                KICK_CHAT_POLL_SECONDS
-            )
-            continue
-
-        status, data = _kick_chat_request(
-            token
-        )
-
-        if status != 200:
-            if status not in (401, 403, 404):
-                print(
-                    "KICK chat HTTP status:",
-                    status,
-                    redact(data)
-                )
-
-            time.sleep(
-                KICK_CHAT_POLL_SECONDS
-            )
-            continue
-
-        messages = _extract_chat_messages(
-            data
-        )
-
-        for message in messages:
-
-            message_id = (
-                _chat_message_id(message)
-            )
-
-            body = _chat_message_text(
-                message
-            )
-
-            if not message_id or not body:
-                continue
-
-            with chat_seen_lock:
-
-                if message_id in chat_seen_ids:
-                    continue
-
-                chat_seen_ids.add(
-                    message_id
-                )
-
-                if len(chat_seen_ids) > 2000:
-                    chat_seen_ids = set(
-                        list(chat_seen_ids)[-1000:]
-                    )
-
-            if len(body) > 500:
-                continue
-
-            try:
-
-                answer = _answer_chat(
-                    _chat_author(message),
-                    body
-                )
-
-                if answer:
-                    speak_ai(answer)
-
-            except Exception as exc:
-                print(
-                    "Chat AI error:",
-                    repr(exc)
-                )
-
-        time.sleep(
-            KICK_CHAT_POLL_SECONDS
-        )
-
-
-def start_chat_worker():
-    global chat_worker_started
-
-    if chat_worker_started:
-        return
-
-    chat_worker_started = True
-
-    threading.Thread(
-        target=_kick_chat_worker,
-        daemon=True,
-        name="kick-chat-worker",
-    ).start()
-
-
-@app.route(
-    "/api/chat/status"
-)
-def chat_status():
-
-    return jsonify({
-        "ok": True,
-        "enabled": bool(
-            os.getenv(
-                "KICK_ACCESS_TOKEN",
-                ""
-            ).strip()
-        ),
-        "poll_seconds":
-            KICK_CHAT_POLL_SECONDS,
-        "messages_seen":
-            len(chat_seen_ids),
-        "note":
-            "KICK_CHAT_URL is configurable"
-    })
-
-
-# =========================================================
-# AI TTS -> LIVE AUDIO
-# =========================================================
-
-speech_queue = []
-speech_lock = threading.Lock()
-speech_worker_started = False
-
-
-def _tts_to_pcm(audio_bytes):
-    if not audio_bytes:
-        return b""
-
-    try:
-        with wave.open(io.BytesIO(audio_bytes), "rb") as wav:
-            channels = wav.getnchannels()
-            rate = wav.getframerate()
-            width = wav.getsampwidth()
-            frames = wav.readframes(wav.getnframes())
-
-        if channels == 2 and rate == 48000 and width == 2:
-            return frames
-
-    except Exception:
-        pass
-
-    result = subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel", "error",
-            "-i", "pipe:0",
-            "-f", "s16le",
-            "-ar", "48000",
-            "-ac", "2",
-            "pipe:1",
-        ],
-        input=audio_bytes,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=90,
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            result.stderr.decode(
-                "utf-8",
-                errors="replace"
-            )[-3000:]
-        )
-
-    return result.stdout
-
-
-def speak_ai(text):
-    text = str(text or "").strip()
-
-    if not text:
-        return False
-
-    try:
-        response = requests.get(
-            TTS_URL,
-            params={
-                "text": text,
-                "voice": TTS_VOICE,
-            },
-            timeout=90,
-        )
-
-        response.raise_for_status()
-
-        pcm = _tts_to_pcm(
-            response.content
-        )
-
-        if not pcm:
-            return False
-
-        with speech_lock:
-            speech_queue.append(pcm)
-
-        print(f"AI speech queued: {len(pcm)} bytes")  # Debug log
-
-        return True
-
-    except Exception as exc:
-        print(
-            "AI TTS error:",
-            repr(exc)
-        )
-        return False
-
-
-def _speech_worker():
-    while True:
-
-        pcm = None
-
-        with speech_lock:
-            if speech_queue:
-                pcm = speech_queue.pop(0)
-
-        if pcm is None:
-            time.sleep(0.1)
-            continue
-
-        with ffmpeg_lock:
-            process = ffmpeg_process
-
-        if not process:
-            print("No FFmpeg process, skipping speech")
-            continue
-
-        if process.poll() is not None:
-            print("FFmpeg process died, skipping speech")
-            continue
-
-        try:
-            chunk_size = 48000 * 2 * 2 // 10  # 100ms chunks
-
-            for offset in range(
-                0,
-                len(pcm),
-                chunk_size
-            ):
-
-                chunk = pcm[
-                    offset:
-                    offset + chunk_size
-                ]
-
-                with ffmpeg_lock:
-                    if (
-                        not ffmpeg_process
-                        or
-                        ffmpeg_process.poll()
-                        is not None
-                    ):
-                        break
-
-                    ffmpeg_process.stdin.write(
-                        chunk
-                    )
-
-                    ffmpeg_process.stdin.flush()
-
-            print(f"Speech chunk sent: {len(pcm)} bytes")
-
-        except Exception as exc:
-            print(
-                "AI speech pipe error:",
-                repr(exc)
-            )
-
-
-def start_speech_worker():
-    global speech_worker_started
-
-    if speech_worker_started:
-        return
-
-    speech_worker_started = True
-
-    threading.Thread(
-        target=_speech_worker,
-        daemon=True,
-        name="ai-speech-worker",
-    ).start()
-
-
-@app.route(
-    "/api/ai/speak",
-    methods=["POST"]
-)
-def api_ai_speak():
-
-    if not session.get("authenticated"):
-        return jsonify({
-            "ok": False,
-            "error": "Not logged in"
-        }), 401
-
-    data = request.get_json(
-        silent=True
-    ) or {}
-
-    text = str(
-        data.get("text", "")
-    ).strip()
-
-    if not text:
-        return jsonify({
-            "ok": False,
-            "error": "กรุณาระบุข้อความ"
-        }), 400
-
-    if len(text) > 1000:
-        return jsonify({
-            "ok": False,
-            "error": "ข้อความยาวเกิน 1000 ตัวอักษร"
-        }), 400
-
-    with ffmpeg_lock:
-        process = ffmpeg_process
-
-    if (
-        not process
-        or process.poll() is not None
-    ):
-        return jsonify({
-            "ok": False,
-            "error": "LIVE ยังไม่ทำงาน"
-        }), 409
-
-    ok = speak_ai(text)
-
-    return jsonify({
-        "ok": ok,
-        "text": text
-    })
-
+        _append_ffmpeg_log("FFmpeg stderr reader error: " + repr(exc))
+
+# ============================================================
+# START FFMPEG STREAM (WITH SLIDESHOW)
+# ============================================================
 
 def start_ffmpeg_stream():
     global ffmpeg_process
 
+    # ตรวจสอบและดาวน์โหลดรูปสไลด์
+    ensure_slide_images()
+
     credentials = get_stream_credentials()
-
     if not credentials["ok"]:
-        raise RuntimeError(
-            credentials["error"]
-        )
+        raise RuntimeError(credentials["error"])
 
-    target = str(
-        credentials["target"]
-    ).strip()
-
+    target = str(credentials["target"]).strip()
     if not target.startswith("rtmps://"):
-        raise RuntimeError(
-            "KICK returned an invalid RTMPS target."
-        )
+        raise RuntimeError("KICK returned an invalid RTMPS target.")
 
-    print(
-        "KICK RTMPS:",
-        credentials["stream_url"]
+    print("KICK RTMPS:", credentials["stream_url"])
+
+    # กำหนด duration ของแต่ละสไลด์ (เป็นวินาที)
+    SLIDE_DURATION = 10   # 10 วินาทีต่อภาพ
+    FPS = 30
+    FRAMES_PER_SLIDE = SLIDE_DURATION * FPS
+
+    # สร้าง filter complex สำหรับสไลด์โชว์แบบวนลูป (ไม่มีการเปลี่ยนผ่าน)
+    filter_complex = (
+        f"movie={SLIDE_PATHS[0]}:loop=0,setpts=N/FRAME_RATE/TB,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,loop={FRAMES_PER_SLIDE}:1:0[img1];"
+        f"movie={SLIDE_PATHS[1]}:loop=0,setpts=N/FRAME_RATE/TB,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,loop={FRAMES_PER_SLIDE}:1:0[img2];"
+        "[img1][img2]concat=n=2:v=1:a=0,loop=-1:size=2[bg]"
     )
 
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel", "warning",
-
-        "-re",
-        "-f", "lavfi",
-        "-i",
-        "color=c=0x080D0A:s=1280x720:r=30",
-
+        # Audio input (PCM from Python)
         "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-i", "pipe:0",
-
-        "-filter_complex",
-        (
-            "[0:v]"
-            "drawtext="
-            "fontcolor=white:"
-            "fontsize=42:"
-            "text='AI LIVE':"
-            "x=(w-text_w)/2:"
-            "y=70"
-            "[bg];"
-
-            "[1:a]"
-            "showwaves="
-            "s=1100x260:"
-            "mode=cline:"
-            "rate=30:"
-            "colors=0x53FF9D:"
-            "draw=full"
-            "[wave];"
-
-            "[bg][wave]"
-            "overlay="
-            "(W-w)/2:"
-            "(H-h)/2"
-            "[outv]"
-        ),
-
-        "-map", "[outv]",
-        "-map", "1:a",
-
+        # Video generated from filter complex
+        "-filter_complex", filter_complex,
+        "-map", "[bg]",
+        "-map", "0:a",
+        # H.264 encoding
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-tune", "zerolatency",
         "-pix_fmt", "yuv420p",
-        "-r", "30",
-        "-g", "60",
-        "-keyint_min", "60",
+        "-r", str(FPS),
+        "-g", str(FPS * 2),
+        "-keyint_min", str(FPS * 2),
         "-sc_threshold", "0",
         "-b:v", "4500k",
         "-maxrate", "4500k",
         "-bufsize", "9000k",
-
+        # Audio encoding
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "48000",
         "-ac", "2",
-
+        # RTMP output
         "-rtmp_live", "live",
         "-flvflags", "no_duration_filesize",
         "-f", "flv",
@@ -1704,33 +529,17 @@ def start_ffmpeg_stream():
     ]
 
     global ffmpeg_last_error
-
     with ffmpeg_log_lock:
         ffmpeg_last_error = ""
         try:
-            with open(
-                FFMPEG_LOG_PATH,
-                "w",
-                encoding="utf-8"
-            ) as f:
-                f.write(
-                    "=== FFmpeg session started ===\\n"
-                )
-                f.write(
-                    "Target: "
-                    + redact({"target": target})["target"]
-                    + "\\n"
-                )
-                f.write(
-                    "Stream URL: "
-                    + credentials["stream_url"]
-                    + "\\n"
-                )
+            with open(FFMPEG_LOG_PATH, "w", encoding="utf-8") as f:
+                f.write("=== FFmpeg session started ===\n")
+                f.write("Target: " + redact({"target": target})["target"] + "\n")
+                f.write("Stream URL: " + credentials["stream_url"] + "\n")
         except Exception:
             pass
 
-    print("Starting FFmpeg -> KICK")
-
+    print("Starting FFmpeg -> KICK with slideshow")
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
@@ -1742,64 +551,34 @@ def start_ffmpeg_stream():
     with ffmpeg_lock:
         ffmpeg_process = process
 
-    threading.Thread(
-        target=_drain_ffmpeg_stderr,
-        args=(process,),
-        daemon=True,
-        name="ffmpeg-stderr",
-    ).start()
-
+    threading.Thread(target=_drain_ffmpeg_stderr, args=(process,), daemon=True, name="ffmpeg-stderr").start()
     return process
 
-
 def write_pcm(pcm):
-
     with ffmpeg_lock:
         process = ffmpeg_process
-
-    if not process:
+    if not process or process.poll() is not None:
         return
-
-    if process.poll() is not None:
-        return
-
     with audio_write_lock:
-
         try:
             process.stdin.write(pcm)
             process.stdin.flush()
-        except (
-            BrokenPipeError,
-            OSError,
-        ):
+        except (BrokenPipeError, OSError):
             pass
 
-
 # ============================================================
-# SILENCE
+# SILENCE LOOP
 # ============================================================
 
 def silence_loop():
-
-    silence = (
-        b"\x00\x00"
-        * 2
-        * 4800
-    )
-
+    silence = b"\x00\x00" * 2 * 4800   # 100ms
     while True:
-
         with ffmpeg_lock:
             process = ffmpeg_process
-
-        if (
-            process
-            and process.poll() is None
-        ):
+        if process and process.poll() is None:
             write_pcm(silence)
         else:
             time.sleep(0.2)
-
 
 # ============================================================
 # EVENT QUEUE
@@ -1808,301 +587,120 @@ def silence_loop():
 def enqueue_event(event):
     event_queue.put(event)
 
-
 def event_worker():
-
     while True:
-
         event = event_queue.get()
-
         try:
             process_event(event)
-
         except Exception as exc:
-            print(
-                "AI event error:",
-                repr(exc)
-            )
-
+            print("AI event error:", repr(exc))
         finally:
             event_queue.task_done()
 
-
 def process_event(event):
-
     event_type = event.get("type")
-
-    username = str(
-        event.get(
-            "username",
-            "ผู้ชม"
-        )
-    )
-
+    username = str(event.get("username", "ผู้ชม"))
     if event_type == "donation":
-
-        amount = str(
-            event.get(
-                "amount",
-                "0"
-            )
-        )
-
-        message = str(
-            event.get(
-                "message",
-                ""
-            )
-        )
-
-        prompt = (
-            f"ผู้ชมชื่อ {username} "
-            f"โดเนท {amount} บาท"
-        )
-
+        amount = str(event.get("amount", "0"))
+        message = str(event.get("message", ""))
+        prompt = f"ผู้ชมชื่อ {username} โดเนท {amount} บาท"
         if message:
-            prompt += (
-                f" และส่งข้อความว่า {message}"
-            )
-
-        reply = mistral_generate(
-            prompt
-        )
-
+            prompt += f" และส่งข้อความว่า {message}"
+        reply = mistral_generate(prompt)
     else:
-
-        message = str(
-            event.get(
-                "message",
-                ""
-            )
-        )
-
-        reply = mistral_generate(
-            f"ผู้ชมชื่อ {username} "
-            f"ถามว่า {message}"
-        )
-
+        message = str(event.get("message", ""))
+        reply = mistral_generate(f"ผู้ชมชื่อ {username} ถามว่า {message}")
     print("AI:", reply)
-
     audio = download_tts(reply)
-
     pcm = audio_to_pcm(audio)
-
     write_pcm(pcm)
-
 
 # ============================================================
 # GIVEDONATE SSE
 # ============================================================
 
 def parse_sse_block(block):
-
     data_lines = []
-
     for line in block.splitlines():
-
         if line.startswith("data:"):
-            data_lines.append(
-                line[5:].strip()
-            )
-
+            data_lines.append(line[5:].strip())
     if not data_lines:
         return None
-
     raw = "\n".join(data_lines)
-
     try:
         return json.loads(raw)
     except Exception:
-        return {
-            "message": raw
-        }
-
+        return {"message": raw}
 
 def normalize_donation(event):
-
-    username = (
-        event.get("username")
-        or event.get("name")
-        or event.get("donor")
-        or "ผู้สนับสนุน"
-    )
-
-    amount = (
-        event.get("amount")
-        or event.get("price")
-        or event.get("value")
-        or 0
-    )
-
-    message = (
-        event.get("message")
-        or event.get("note")
-        or event.get("comment")
-        or ""
-    )
-
-    return {
-        "type": "donation",
-        "username": str(username),
-        "amount": str(amount),
-        "message": str(message),
-    }
-
+    username = event.get("username") or event.get("name") or event.get("donor") or "ผู้สนับสนุน"
+    amount = event.get("amount") or event.get("price") or event.get("value") or 0
+    message = event.get("message") or event.get("note") or event.get("comment") or ""
+    return {"type": "donation", "username": str(username), "amount": str(amount), "message": str(message)}
 
 def donation_listener():
-
     if not GIVEDONATE_TOKEN:
-        print(
-            "GIVEDONATE_TOKEN is missing."
-        )
+        print("GIVEDONATE_TOKEN is missing.")
         return
-
     while True:
-
         try:
-
             response = requests.get(
                 GIVEDONATE_URL,
-                params={
-                    "token":
-                        GIVEDONATE_TOKEN
-                },
-                headers={
-                    "Accept":
-                        "text/event-stream",
-                    "Cache-Control":
-                        "no-cache",
-                },
+                params={"token": GIVEDONATE_TOKEN},
+                headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
                 stream=True,
                 timeout=90,
             )
-
             response.raise_for_status()
-
             buffer = ""
-
-            for line in response.iter_lines(
-                decode_unicode=True
-            ):
-
+            for line in response.iter_lines(decode_unicode=True):
                 if line is None:
                     continue
-
                 if line == "":
-
-                    event = parse_sse_block(
-                        buffer
-                    )
-
+                    event = parse_sse_block(buffer)
                     buffer = ""
-
                     if event:
-
-                        enqueue_event(
-                            normalize_donation(
-                                event
-                            )
-                        )
-
+                        enqueue_event(normalize_donation(event))
                     continue
-
                 buffer += line + "\n"
-
         except Exception as exc:
-
-            print(
-                "GiveDonate SSE error:",
-                repr(exc)
-            )
-
+            print("GiveDonate SSE error:", repr(exc))
             time.sleep(3)
-
 
 # ============================================================
 # BACKGROUND THREADS
 # ============================================================
 
 def start_background_workers():
-
     global background_threads_started
-
     with background_threads_lock:
-
         if background_threads_started:
             return
-
         background_threads_started = True
-
-    threading.Thread(
-        target=event_worker,
-        daemon=True,
-        name="ai-worker",
-    ).start()
-
-    threading.Thread(
-        target=donation_listener,
-        daemon=True,
-        name="donation-sse",
-    ).start()
-
-    threading.Thread(
-        target=silence_loop,
-        daemon=True,
-        name="audio-silence",
-    ).start()
-
-    start_chat_worker()
-
+    threading.Thread(target=event_worker, daemon=True, name="ai-worker").start()
+    threading.Thread(target=donation_listener, daemon=True, name="donation-sse").start()
+    threading.Thread(target=silence_loop, daemon=True, name="audio-silence").start()
 
 # ============================================================
-# HOME
+# ROUTES
 # ============================================================
 
 @app.route("/")
 def index():
-
     if session.get("authenticated"):
         return redirect("/dashboard")
-
-    return render_template(
-        "index.html"
-    )
-
-
-# ============================================================
-# LOGIN
-# ============================================================
+    return render_template("index.html")
 
 @app.route("/login")
 def login():
-
     if not KICK_CLIENT_ID:
-        return (
-            "KICK_CLIENT_ID is missing.",
-            500,
-        )
-
+        return "KICK_CLIENT_ID is missing.", 500
     state = secrets.token_urlsafe(32)
-
     verifier = secrets.token_urlsafe(64)
-
-    digest = hashlib.sha256(
-        verifier.encode()
-    ).digest()
-
-    challenge = (
-        base64.urlsafe_b64encode(
-            digest
-        )
-        .decode()
-        .rstrip("=")
-    )
-
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
     session["oauth_state"] = state
     session["oauth_verifier"] = verifier
-
     params = {
         "response_type": "code",
         "client_id": KICK_CLIENT_ID,
@@ -2112,346 +710,121 @@ def login():
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
-
-    return redirect(
-        KICK_AUTH_URL
-        + "?"
-        + urlencode(params)
-    )
-
-
-# ============================================================
-# CALLBACK
-# ============================================================
+    return redirect(KICK_AUTH_URL + "?" + urlencode(params))
 
 @app.route("/callback")
 def callback():
-
     error = request.args.get("error")
-
     if error:
-
-        description = request.args.get(
-            "error_description",
-            ""
-        )
-
-        return (
-            f"""
-            <!doctype html>
-            <html lang="th">
-            <head>
-                <meta charset="utf-8">
-                <title>KICK OAuth Error</title>
-            </head>
-            <body>
-                <h2>KICK Login Error</h2>
-                <p><b>Error:</b> {error}</p>
-                <p>{description}</p>
-                <a href="/login">Login ใหม่</a>
-            </body>
-            </html>
-            """,
-            400,
-        )
-
+        description = request.args.get("error_description", "")
+        return f"""
+        <!doctype html>
+        <html><head><meta charset="utf-8"><title>KICK OAuth Error</title></head>
+        <body><h2>KICK Login Error</h2><p><b>Error:</b> {error}</p><p>{description}</p><a href="/login">Login ใหม่</a></body></html>
+        """, 400
     code = request.args.get("code")
     state = request.args.get("state")
-
-    saved_state = session.get(
-        "oauth_state"
-    )
-
-    verifier = session.get(
-        "oauth_verifier"
-    )
-
+    saved_state = session.get("oauth_state")
+    verifier = session.get("oauth_verifier")
     if not code:
-        return (
-            "ไม่มี authorization code จาก KICK.",
-            400,
-        )
-
+        return "ไม่มี authorization code จาก KICK.", 400
     if not state or not saved_state:
-        return (
-            "OAuth session หาย กรุณา Login ใหม่.",
-            400,
-        )
-
-    if not secrets.compare_digest(
-        state,
-        saved_state
-    ):
-        return (
-            "OAuth state ไม่ตรงกัน.",
-            400,
-        )
-
+        return "OAuth session หาย กรุณา Login ใหม่.", 400
+    if not secrets.compare_digest(state, saved_state):
+        return "OAuth state ไม่ตรงกัน.", 400
     if not verifier:
-        return (
-            "PKCE verifier หาย กรุณา Login ใหม่.",
-            400,
-        )
-
+        return "PKCE verifier หาย กรุณา Login ใหม่.", 400
     payload = {
-        "grant_type":
-            "authorization_code",
-
-        "client_id":
-            KICK_CLIENT_ID,
-
-        "client_secret":
-            KICK_CLIENT_SECRET,
-
-        "redirect_uri":
-            KICK_REDIRECT_URI,
-
-        "code":
-            code,
-
-        "code_verifier":
-            verifier,
+        "grant_type": "authorization_code",
+        "client_id": KICK_CLIENT_ID,
+        "client_secret": KICK_CLIENT_SECRET,
+        "redirect_uri": KICK_REDIRECT_URI,
+        "code": code,
+        "code_verifier": verifier,
     }
-
     try:
-
-        response = requests.post(
-            KICK_TOKEN_URL,
-            data=payload,
-            timeout=30,
-        )
-
+        response = requests.post(KICK_TOKEN_URL, data=payload, timeout=30)
         data = response.json()
-
     except Exception as exc:
-
-        return (
-            f"Token exchange failed: {exc}",
-            502,
-        )
-
+        return f"Token exchange failed: {exc}", 502
     if not response.ok:
-
-        return (
-            f"""
-            <h2>KICK Token Error</h2>
-            <p>HTTP {response.status_code}</p>
-            <pre>{redact(data)}</pre>
-            <a href="/login">Login ใหม่</a>
-            """,
-            400,
-        )
-
-    access_token = data.get(
-        "access_token"
-    )
-
+        return f"<h2>KICK Token Error</h2><p>HTTP {response.status_code}</p><pre>{redact(data)}</pre><a href='/login'>Login ใหม่</a>", 400
+    access_token = data.get("access_token")
     if not access_token:
-        return (
-            "KICK ไม่ส่ง Access Token.",
-            400,
-        )
-
+        return "KICK ไม่ส่ง Access Token.", 400
     session.clear()
-
-    global kick_access_token
-    global kick_broadcaster_user_id
-
+    global kick_access_token, kick_broadcaster_user_id
     session["authenticated"] = True
     session["access_token"] = access_token
-    session["scope"] = data.get(
-        "scope",
-        ""
-    )
-
+    session["scope"] = data.get("scope", "")
     kick_access_token = access_token
-
     if data.get("refresh_token"):
-        session["refresh_token"] = data.get(
-            "refresh_token"
-        )
-
-    user_result = kick_get(
-        "/users",
-        access_token
-    )
-
+        session["refresh_token"] = data.get("refresh_token")
+    user_result = kick_get("/users", access_token)
     if user_result["ok"]:
-
-        user = first_object(
-            user_result["data"]
-        )
-
+        user = first_object(user_result["data"])
         if user:
             session["user"] = user
-
     start_background_workers()
-
     try:
         subscribe_result = subscribe_kick_chat()
-        print(
-            "KICK chat subscription:",
-            redact(subscribe_result)
-        )
+        print("KICK chat subscription:", redact(subscribe_result))
     except Exception as exc:
-        print(
-            "KICK chat subscription error:",
-            repr(exc)
-        )
-
+        print("KICK chat subscription error:", repr(exc))
     return redirect("/dashboard")
-
-
-# ============================================================
-# DASHBOARD
-# ============================================================
 
 @app.route("/dashboard")
 def dashboard():
-
-    if not session.get(
-        "authenticated"
-    ):
+    if not session.get("authenticated"):
         return redirect("/login")
+    return render_template("dashboard.html", user=session.get("user"))
 
-    return render_template(
-        "dashboard.html",
-        user=session.get("user"),
-    )
-
-
-# ============================================================
-# START LIVE
-# ============================================================
-
-@app.route(
-    "/api/start",
-    methods=["POST"]
-)
+@app.route("/api/start", methods=["POST"])
 def api_start():
-
-    if not session.get(
-        "authenticated"
-    ):
-        return jsonify({
-            "ok": False,
-            "error":
-                "กรุณา Login KICK ก่อน"
-        }), 401
-
+    if not session.get("authenticated"):
+        return jsonify({"ok": False, "error": "กรุณา Login KICK ก่อน"}), 401
     global ffmpeg_process
-
     with ffmpeg_lock:
-
-        if (
-            ffmpeg_process
-            and ffmpeg_process.poll() is None
-        ):
-            return jsonify({
-                "ok": False,
-                "error":
-                    "Live กำลังทำงานอยู่แล้ว"
-            }), 409
-
+        if ffmpeg_process and ffmpeg_process.poll() is None:
+            return jsonify({"ok": False, "error": "Live กำลังทำงานอยู่แล้ว"}), 409
     try:
-
         process = start_ffmpeg_stream()
-
     except Exception as exc:
-
-        return jsonify({
-            "ok": False,
-            "error": str(exc),
-        }), 500
-
+        return jsonify({"ok": False, "error": str(exc)}), 500
     start_background_workers()
-
     time.sleep(8)
-
     if process.poll() is not None:
-
         stderr = ""
-
         try:
-            stderr = (
-                process.stderr
-                .read()
-                .decode(
-                    "utf-8",
-                    errors="replace"
-                )
-            )
+            stderr = process.stderr.read().decode("utf-8", errors="replace")
         except Exception:
             pass
-
         with ffmpeg_lock:
             ffmpeg_process = None
+        return jsonify({"ok": False, "error": "FFmpeg หยุดทำงาน", "ffmpeg": stderr[-6000:]}), 502
+    return jsonify({"ok": True, "message": "เริ่ม AI Live แล้ว"})
 
-        return jsonify({
-            "ok": False,
-            "error":
-                "FFmpeg หยุดทำงาน",
-            "ffmpeg":
-                stderr[-6000:],
-        }), 502
-
-    return jsonify({
-        "ok": True,
-        "message":
-            "เริ่ม AI Live แล้ว",
-    })
-
-
-# ============================================================
-# STOP LIVE
-# ============================================================
-
-@app.route(
-    "/api/stop",
-    methods=["POST"]
-)
+@app.route("/api/stop", methods=["POST"])
 def api_stop():
-
     global ffmpeg_process
-
     with ffmpeg_lock:
-
         process = ffmpeg_process
         ffmpeg_process = None
-
     if not process:
-
-        return jsonify({
-            "ok": False,
-            "message":
-                "ไม่มี Live"
-        })
-
+        return jsonify({"ok": False, "message": "ไม่มี Live"})
     try:
-
         if process.poll() is None:
-
             process.terminate()
-
             try:
-                process.wait(
-                    timeout=5
-                )
+                process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-
     except Exception:
         pass
-
-    return jsonify({
-        "ok": True,
-        "message":
-            "หยุด AI Live แล้ว"
-    })
-
+    return jsonify({"ok": True, "message": "หยุด AI Live แล้ว"})
 
 # ============================================================
-# STATUS (ปรับปรุงให้ละเอียด)
+# STATUS / TEST
 # ============================================================
 
 def get_detailed_status():
@@ -2460,18 +833,12 @@ def get_detailed_status():
     sub_status = {}
     if authenticated and access_token:
         sub_result = get_kick_subscriptions()
-        sub_status = {
-            "ok": sub_result.get("ok", False),
-            "data": sub_result.get("data"),
-            "has_subscription": bool(sub_result.get("data", {}).get("data"))
-        }
+        sub_status = {"ok": sub_result.get("ok", False), "data": sub_result.get("data"), "has_subscription": bool(sub_result.get("data", {}).get("data"))}
     else:
         sub_status = {"ok": False, "has_subscription": False}
-    
     with ffmpeg_lock:
         process = ffmpeg_process
         live_running = process and process.poll() is None
-    
     return {
         "authenticated": authenticated,
         "access_token_present": bool(access_token),
@@ -2480,11 +847,10 @@ def get_detailed_status():
         "tts_configured": bool(TTS_URL),
         "givedonate_configured": bool(GIVEDONATE_TOKEN),
         "webhook_subscription": sub_status,
-        "chat_seen_count": len(chat_seen_ids),
+        "chat_seen_count": 0,  # เราไม่ได้ใช้ chat_seen_ids ในเวอร์ชันนี้แล้ว
         "kick_broadcaster_user_id": kick_broadcaster_user_id,
         "webhook_url": KICK_WEBHOOK_URL,
     }
-
 
 @app.route("/api/status")
 def api_status():
@@ -2492,17 +858,11 @@ def api_status():
     status["ok"] = True
     return jsonify(status)
 
-
 @app.route("/status")
 def status_page():
     if not session.get("authenticated"):
         return redirect("/login")
     return render_template("status.html")
-
-
-# ============================================================
-# TEST PAGE
-# ============================================================
 
 @app.route("/test")
 def test_page():
@@ -2510,267 +870,186 @@ def test_page():
         return redirect("/login")
     return render_template("test.html")
 
-
-# ============================================================
-# TEST MISTRAL
-# ============================================================
-
-@app.route(
-    "/api/test/mistral",
-    methods=["POST"]
-)
+@app.route("/api/test/mistral", methods=["POST"])
 def test_mistral():
-
     try:
-
-        body = request.get_json(
-            silent=True
-        ) or {}
-
-        text = str(
-            body.get(
-                "text",
-                "พูดทักทายคนดูในไลฟ์แบบสั้น ๆ"
-            )
-        )
-
+        body = request.get_json(silent=True) or {}
+        text = str(body.get("text", "พูดทักทายคนดูในไลฟ์แบบสั้น ๆ"))
         answer = mistral_generate(text)
-
-        return jsonify({
-            "ok": True,
-            "answer": answer,
-            "model": MISTRAL_MODEL,
-        })
-
+        return jsonify({"ok": True, "answer": answer, "model": MISTRAL_MODEL})
     except Exception as exc:
-
-        return jsonify({
-            "ok": False,
-            "error": str(exc),
-        }), 500
-
-
-# ============================================================
-# TEST TTS
-# ============================================================
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 @app.route("/api/test/tts")
 def test_tts():
-
-    text = request.args.get(
-        "text",
-        "สวัสดีครับ",
-    )
-
+    text = request.args.get("text", "สวัสดีครับ")
     try:
-
         audio = download_tts(text)
-
-        return jsonify({
-            "ok": True,
-            "bytes": len(audio),
-            "content_type": "audio/mpeg",
-        })
-
+        return jsonify({"ok": True, "bytes": len(audio), "content_type": "audio/mpeg"})
     except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
-        return jsonify({
-            "ok": False,
-            "error": str(exc),
-        }), 500
-
-
-# ============================================================
-# TEST AUDIO PIPELINE (เพิ่มเพื่อ debug เสียง)
-# ============================================================
-
-@app.route("/api/test/audio")
-def test_audio():
-    """ทดสอบสร้างเสียงและส่งเข้า FFmpeg โดยตรง"""
-    try:
-        # ดาวน์โหลดเสียง TTS
-        audio = download_tts("สวัสดีครับ ทดสอบระบบเสียง")
-        
-        # แปลงเป็น PCM
-        pcm = audio_to_pcm(audio)
-        
-        # ส่งเข้า FFmpeg
-        write_pcm(pcm)
-        
-        return jsonify({
-            "ok": True,
-            "pcm_bytes": len(pcm),
-            "message": "ส่งเสียงเข้า FFmpeg แล้ว"
-        })
-    except Exception as exc:
-        return jsonify({
-            "ok": False,
-            "error": str(exc)
-        }), 500
-
-
-# ============================================================
-# DEBUG STREAM
-# ============================================================
-
-@app.route(
-    "/api/debug/ffmpeg"
-)
-def debug_ffmpeg():
-
+@app.route("/api/ai/speak", methods=["POST"])
+def api_ai_speak():
+    if not session.get("authenticated"):
+        return jsonify({"ok": False, "error": "Not logged in"}), 401
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text", "")).strip()
+    if not text:
+        return jsonify({"ok": False, "error": "กรุณาระบุข้อความ"}), 400
+    if len(text) > 1000:
+        return jsonify({"ok": False, "error": "ข้อความยาวเกิน 1000 ตัวอักษร"}), 400
     with ffmpeg_lock:
         process = ffmpeg_process
+    if not process or process.poll() is not None:
+        return jsonify({"ok": False, "error": "LIVE ยังไม่ทำงาน"}), 409
+    ok = speak_ai(text)
+    return jsonify({"ok": ok, "text": text})
 
-    returncode = (
-        process.poll()
-        if process
-        else None
-    )
-
+def speak_ai(text):
+    text = str(text or "").strip()
+    if not text:
+        return False
     try:
-        with open(
-            FFMPEG_LOG_PATH,
-            "r",
-            encoding="utf-8",
-            errors="replace"
-        ) as f:
-            log = f.read()
+        response = requests.get(TTS_URL, params={"text": text, "voice": TTS_VOICE}, timeout=90)
+        response.raise_for_status()
+        pcm = _tts_to_pcm(response.content)
+        if not pcm:
+            return False
+        with speech_lock:
+            speech_queue.append(pcm)
+        return True
+    except Exception as exc:
+        print("AI TTS error:", repr(exc))
+        return False
 
+# ============================================================
+# SPEECH QUEUE & WORKER
+# ============================================================
+
+speech_queue = []
+speech_lock = threading.Lock()
+speech_worker_started = False
+
+def _tts_to_pcm(audio_bytes):
+    if not audio_bytes:
+        return b""
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as wav:
+            channels = wav.getnchannels()
+            rate = wav.getframerate()
+            width = wav.getsampwidth()
+            frames = wav.readframes(wav.getnframes())
+        if channels == 2 and rate == 48000 and width == 2:
+            return frames
+    except Exception:
+        pass
+    result = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"],
+        input=audio_bytes,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=90,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode("utf-8", errors="replace")[-3000:])
+    return result.stdout
+
+def _speech_worker():
+    while True:
+        pcm = None
+        with speech_lock:
+            if speech_queue:
+                pcm = speech_queue.pop(0)
+        if pcm is None:
+            time.sleep(0.1)
+            continue
+        with ffmpeg_lock:
+            process = ffmpeg_process
+        if not process or process.poll() is not None:
+            continue
+        try:
+            chunk_size = 48000 * 2 * 2 // 10
+            for offset in range(0, len(pcm), chunk_size):
+                chunk = pcm[offset:offset+chunk_size]
+                with ffmpeg_lock:
+                    if not ffmpeg_process or ffmpeg_process.poll() is not None:
+                        break
+                    ffmpeg_process.stdin.write(chunk)
+                    ffmpeg_process.stdin.flush()
+        except Exception as exc:
+            print("AI speech pipe error:", repr(exc))
+
+def start_speech_worker():
+    global speech_worker_started
+    if speech_worker_started:
+        return
+    speech_worker_started = True
+    threading.Thread(target=_speech_worker, daemon=True, name="ai-speech-worker").start()
+
+# ============================================================
+# DEBUG
+# ============================================================
+
+@app.route("/api/debug/ffmpeg")
+def debug_ffmpeg():
+    with ffmpeg_lock:
+        process = ffmpeg_process
+    returncode = process.poll() if process else None
+    try:
+        with open(FFMPEG_LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+            log = f.read()
     except Exception:
         log = ""
-
     return jsonify({
         "ok": True,
-
-        "running": bool(
-            process
-            and process.poll() is None
-        ),
-
-        "returncode":
-            returncode,
-
-        "last_error":
-            ffmpeg_last_error,
-
-        "log":
-            log[-15000:],
+        "running": bool(process and process.poll() is None),
+        "returncode": returncode,
+        "last_error": ffmpeg_last_error,
+        "log": log[-15000:],
     })
 
-
-@app.route(
-    "/api/debug/ffmpeg-log"
-)
+@app.route("/api/debug/ffmpeg-log")
 def debug_ffmpeg_log():
-
     try:
-        with open(
-            FFMPEG_LOG_PATH,
-            "r",
-            encoding="utf-8",
-            errors="replace"
-        ) as f:
+        with open(FFMPEG_LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
             log = f.read()
-
-        return jsonify({
-            "ok": True,
-            "log":
-                log[-30000:]
-        })
-
+        return jsonify({"ok": True, "log": log[-30000:]})
     except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
-        return jsonify({
-            "ok": False,
-            "error":
-                str(exc)
-        })
-
-
-@app.route(
-    "/api/debug/stream"
-)
+@app.route("/api/debug/stream")
 def debug_stream():
-
-    if not session.get(
-        "authenticated"
-    ):
-        return jsonify({
-            "ok": False,
-            "error":
-                "Not logged in.",
-        }), 401
-
-    return jsonify(
-        redact(
-            get_stream_credentials()
-        )
-    )
-
-
-# ============================================================
-# HEALTH
-# ============================================================
+    if not session.get("authenticated"):
+        return jsonify({"ok": False, "error": "Not logged in."}), 401
+    return jsonify(redact(get_stream_credentials()))
 
 @app.route("/health")
 def health():
-
-    return jsonify({
-        "ok": True,
-        "service":
-            "kick-mistral-live",
-    })
-
-
-# ============================================================
-# LOGOUT
-# ============================================================
+    return jsonify({"ok": True, "service": "kick-mistral-live"})
 
 @app.route("/logout")
 def logout():
-
-    global ffmpeg_process
-    global kick_access_token
-    global kick_broadcaster_user_id
-
+    global ffmpeg_process, kick_access_token, kick_broadcaster_user_id
     with ffmpeg_lock:
-
         process = ffmpeg_process
         ffmpeg_process = None
-
     if process:
-
         try:
             if process.poll() is None:
                 process.terminate()
         except Exception:
             pass
-
     kick_access_token = ""
     kick_broadcaster_user_id = None
-
     session.clear()
-
     return redirect("/")
-
 
 # ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == "__main__":
-
     start_background_workers()
-
-    port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False,
-    )
+    port = int(os.getenv("PORT", "10000"))
+    app.run(host="0.0.0.0", port=port, debug=False)
