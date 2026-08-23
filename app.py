@@ -682,9 +682,12 @@ def process_event(event):
         message = str(event.get("message", ""))
         reply = mistral_generate(f"ผู้ชมชื่อ {username} ถามว่า {message}")
     print("AI:", reply)
-    audio = download_tts(reply)
-    pcm = audio_to_pcm(audio)
-    write_pcm(pcm)
+    # เดิมตรงนี้เรียก download_tts()+audio_to_pcm()+write_pcm() ตรงๆ ทีเดียว
+    # ซึ่งยัดเสียงทั้งก้อนลง ffmpeg.stdin แบบไม่ผ่านคิว/ไม่มีจังหวะ
+    # ชนกับ audio_feeder_loop() ที่คุมจังหวะ 100ms/ครั้งอยู่คนละเธรด ทำให้เสียง/ภาพสะดุด
+    # เปลี่ยนมาเข้า speech_queue ผ่าน speak_ai() แทน เพื่อให้ audio_feeder_loop
+    # เป็นคนเดียวที่ป้อนเสียงเข้า ffmpeg และคุมจังหวะให้ทั้งระบบสม่ำเสมอ
+    speak_ai(reply)
 
 # ============================================================
 # GIVEDONATE SSE
