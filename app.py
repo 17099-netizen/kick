@@ -511,6 +511,7 @@ def start_ffmpeg_stream():
         "-loglevel", "debug",
 
         # --- Input 0: playlist รูปภาพ วนไม่รู้จบด้วย -stream_loop ---
+        "-re",
         "-stream_loop", "-1",
         "-f", "concat",
         "-safe", "0",
@@ -596,18 +597,52 @@ def write_pcm(pcm):
             pass
 
 # ============================================================
-# SILENCE LOOP
+# AUDIO OUTPUT LOOP (เธรดเดียว คุมจังหวะเสียงทั้งหมดที่ป้อนเข้า ffmpeg)
 # ============================================================
+# แก้จากเดิมที่มี silence_loop() กับ _speech_worker() แยกกันคนละเธรด:
+#   - silence_loop() ไม่มี time.sleep() คุมจังหวะ -> ยิง silence รัวไม่หยุด
+#   - _speech_worker() ไม่เคยถูก start เลยสักครั้ง (ดูจุดที่แก้ใน
+#     start_background_workers ด้านล่าง) -> speech_queue ไม่เคยถูกดึงไปเล่น
+#   - ต่อให้ start ทั้งคู่ ก็ยังใช้คนละ lock เขียนสตรีมเดียวกัน เสี่ยงข้อมูลปนกัน
+# ตอนนี้รวมเป็นเธรดเดียว: ทุก 100ms ถ้ามีคิวเสียงพูดค้างอยู่ก็ดึงมาเล่นก่อน
+# ถ้าไม่มีค่อยเล่น silence แทน ไม่มีสองเธรดแย่งเขียนพร้อมกันอีกต่อไป
 
-def silence_loop():
-    silence = b"\x00\x00" * 2 * 4800   # 100ms
+AUDIO_CHUNK_BYTES = 48000 * 2 * 2 // 10   # 100ms ของ s16le stereo @ 48kHz
+_current_speech_pcm = b""
+
+def audio_feeder_loop():
+    global _current_speech_pcm
+    chunk_seconds = 0.1
+    next_tick = time.monotonic()
     while True:
         with ffmpeg_lock:
             process = ffmpeg_process
-        if process and process.poll() is None:
-            write_pcm(silence)
-        else:
+        if not process or process.poll() is not None:
+            _current_speech_pcm = b""
+            next_tick = time.monotonic()
             time.sleep(0.2)
+            continue
+
+        if not _current_speech_pcm:
+            with speech_lock:
+                if speech_queue:
+                    _current_speech_pcm = speech_queue.pop(0)
+
+        if _current_speech_pcm:
+            chunk = _current_speech_pcm[:AUDIO_CHUNK_BYTES]
+            _current_speech_pcm = _current_speech_pcm[AUDIO_CHUNK_BYTES:]
+            if len(chunk) < AUDIO_CHUNK_BYTES:
+                chunk += b"\x00" * (AUDIO_CHUNK_BYTES - len(chunk))
+            write_pcm(chunk)
+        else:
+            write_pcm(b"\x00" * AUDIO_CHUNK_BYTES)
+
+        next_tick += chunk_seconds
+        sleep_for = next_tick - time.monotonic()
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+        else:
+            next_tick = time.monotonic()   # กันไม่ให้เธรดพยายามไล่ตามจังหวะที่หลุดไปแล้ว
 
 # ============================================================
 # EVENT QUEUE
@@ -708,7 +743,7 @@ def start_background_workers():
         background_threads_started = True
     threading.Thread(target=event_worker, daemon=True, name="ai-worker").start()
     threading.Thread(target=donation_listener, daemon=True, name="donation-sse").start()
-    threading.Thread(target=silence_loop, daemon=True, name="audio-silence").start()
+    threading.Thread(target=audio_feeder_loop, daemon=True, name="audio-feeder").start()
 
 # ============================================================
 # ROUTES
@@ -961,12 +996,13 @@ def speak_ai(text):
         return False
 
 # ============================================================
-# SPEECH QUEUE & WORKER
+# SPEECH QUEUE
 # ============================================================
+# speak_ai() แค่ append PCM เข้าคิวนี้ ตัวที่ดึงไปเล่นจริงคือ
+# audio_feeder_loop() (เธรดเดียวกับที่เล่น silence ด้วย ดูด้านบน)
 
 speech_queue = []
 speech_lock = threading.Lock()
-speech_worker_started = False
 
 def _tts_to_pcm(audio_bytes):
     if not audio_bytes:
@@ -991,38 +1027,6 @@ def _tts_to_pcm(audio_bytes):
     if result.returncode != 0:
         raise RuntimeError(result.stderr.decode("utf-8", errors="replace")[-3000:])
     return result.stdout
-
-def _speech_worker():
-    while True:
-        pcm = None
-        with speech_lock:
-            if speech_queue:
-                pcm = speech_queue.pop(0)
-        if pcm is None:
-            time.sleep(0.1)
-            continue
-        with ffmpeg_lock:
-            process = ffmpeg_process
-        if not process or process.poll() is not None:
-            continue
-        try:
-            chunk_size = 48000 * 2 * 2 // 10
-            for offset in range(0, len(pcm), chunk_size):
-                chunk = pcm[offset:offset+chunk_size]
-                with ffmpeg_lock:
-                    if not ffmpeg_process or ffmpeg_process.poll() is not None:
-                        break
-                    ffmpeg_process.stdin.write(chunk)
-                    ffmpeg_process.stdin.flush()
-        except Exception as exc:
-            print("AI speech pipe error:", repr(exc))
-
-def start_speech_worker():
-    global speech_worker_started
-    if speech_worker_started:
-        return
-    speech_worker_started = True
-    threading.Thread(target=_speech_worker, daemon=True, name="ai-speech-worker").start()
 
 # ============================================================
 # DEBUG
