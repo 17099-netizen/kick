@@ -416,7 +416,7 @@ def ensure_slide_images():
                 temp_path = path + ".tmp"
                 with open(temp_path, "wb") as f:
                     f.write(resp.content)
-                # ปรับขนาดและแพดให้เป็น 1280x720 โดยใช้ ffmpeg
+                # ปรับขนาดและแพดให้เป็น 1280x720
                 subprocess.run(
                     [
                         "ffmpeg", "-i", temp_path,
@@ -437,7 +437,7 @@ def ensure_slide_images():
                 )
 
 # ============================================================
-# FFMPEG LIVE (ใช้สไลด์โชว์ 2 รูป วนไม่รู้จบ)
+# FFMPEG LIVE (สไลด์โชว์ 2 รูป พร้อมเสียง)
 # ============================================================
 
 FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
@@ -473,7 +473,7 @@ def _drain_ffmpeg_stderr(process):
 def start_ffmpeg_stream():
     global ffmpeg_process
 
-    # ตรวจสอบและเตรียมรูปภาพสไลด์
+    # ตรวจสอบและเตรียมรูปภาพ
     ensure_slide_images()
 
     credentials = get_stream_credentials()
@@ -486,33 +486,36 @@ def start_ffmpeg_stream():
 
     print("KICK RTMPS:", credentials["stream_url"])
 
-    # พารามิเตอร์สไลด์: แต่ละรูปแสดง 10 วินาที (30fps → 300 เฟรม)
+    # ตั้งค่าสไลด์: แต่ละรูปแสดง 10 วินาที ที่ 30 fps
     SLIDE_DURATION = 10   # วินาที
     FPS = 30
     FRAMES_PER_SLIDE = SLIDE_DURATION * FPS
 
+    # สร้างคำสั่ง FFmpeg โดยเรียงลำดับให้ถูกต้อง
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel", "debug",
 
-        # Input 0: รูปที่ 1 (วน loop)
+        # --- Input 0: รูปที่ 1 (วน loop) ---
         "-re",
         "-loop", "1",
+        "-framerate", str(FPS),
         "-i", SLIDE_PATHS[0],
 
-        # Input 1: รูปที่ 2 (วน loop)
+        # --- Input 1: รูปที่ 2 (วน loop) ---
         "-re",
         "-loop", "1",
+        "-framerate", str(FPS),
         "-i", SLIDE_PATHS[1],
 
-        # Input 2: เสียง PCM จาก Python
+        # --- Input 2: เสียง PCM จาก Python ---
         "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-i", "pipe:0",
 
-        # Filter complex: ปรับขนาด + loop แต่ละรูป แล้ว concat วน
+        # --- Filter complex (สร้างสไลด์โชว์) ---
         "-filter_complex",
         (
             f"[0:v]scale=1280:720:force_original_aspect_ratio=decrease,"
@@ -524,11 +527,11 @@ def start_ffmpeg_stream():
             f"[img1][img2]concat=n=2:v=1:a=0,loop=-1:size=2[bg]"
         ),
 
-        # Mapping (ต้องอยู่หลัง input ทั้งหมด)
+        # --- Mapping (ต้องอยู่หลัง input ทั้งหมด) ---
         "-map", "[bg]",
         "-map", "2:a",
 
-        # วิดีโอ encoding
+        # --- วิดีโอ encoding ---
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-tune", "zerolatency",
@@ -541,13 +544,13 @@ def start_ffmpeg_stream():
         "-maxrate", "4500k",
         "-bufsize", "9000k",
 
-        # เสียง encoding
+        # --- เสียง encoding ---
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "48000",
         "-ac", "2",
 
-        # RTMP output
+        # --- Output ---
         "-rtmp_live", "live",
         "-flvflags", "no_duration_filesize",
         "-f", "flv",
