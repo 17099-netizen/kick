@@ -86,6 +86,16 @@ kick_access_token = ""
 kick_broadcaster_user_id = None
 
 # ============================================================
+# SLIDE IMAGES (URLs ที่คุณให้)
+# ============================================================
+
+SLIDE_IMAGE_URLS = [
+    "https://i.postimg.cc/GhfQBcJ8/Chat-GPT-Image-23-s-kh-2569-03-49-47.png",
+    "https://i.postimg.cc/MKLDcWbK/Chat-GPT-Image-23-s-kh-2569-03-54-13.png"
+]
+SLIDE_PATHS = ["/tmp/slide1.jpg", "/tmp/slide2.jpg"]
+
+# ============================================================
 # GLOBAL STATE
 # ============================================================
 
@@ -391,7 +401,43 @@ def audio_to_pcm(audio_bytes):
     return stdout
 
 # ============================================================
-# FFMPEG LIVE (แก้ไขลำดับ -map ให้ถูกต้อง)
+# DOWNLOAD & PREPARE SLIDE IMAGES
+# ============================================================
+
+def ensure_slide_images():
+    """ดาวน์โหลดและปรับขนาดรูปภาพให้เป็น 1280x720 เพื่อใช้ในสไลด์โชว์"""
+    for idx, url in enumerate(SLIDE_IMAGE_URLS):
+        path = SLIDE_PATHS[idx]
+        if not os.path.exists(path):
+            try:
+                print(f"Downloading slide image {idx+1} from {url}")
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+                temp_path = path + ".tmp"
+                with open(temp_path, "wb") as f:
+                    f.write(resp.content)
+                # ปรับขนาดและแพดให้เป็น 1280x720 โดยใช้ ffmpeg
+                subprocess.run(
+                    [
+                        "ffmpeg", "-i", temp_path,
+                        "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+                        "-frames:v", "1", path
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                os.remove(temp_path)
+                print(f"Slide {idx+1} ready at {path}")
+            except Exception as e:
+                print(f"Failed to prepare slide {idx+1}: {e}")
+                # สร้างรูปสีดำทดแทน
+                subprocess.run(
+                    ["ffmpeg", "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=1", "-frames:v", "1", path],
+                    check=False,
+                )
+
+# ============================================================
+# FFMPEG LIVE (ใช้สไลด์โชว์ 2 รูป วนไม่รู้จบ)
 # ============================================================
 
 FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
@@ -427,6 +473,9 @@ def _drain_ffmpeg_stderr(process):
 def start_ffmpeg_stream():
     global ffmpeg_process
 
+    # ตรวจสอบและเตรียมรูปภาพสไลด์
+    ensure_slide_images()
+
     credentials = get_stream_credentials()
     if not credentials["ok"]:
         raise RuntimeError(credentials["error"])
@@ -437,42 +486,62 @@ def start_ffmpeg_stream():
 
     print("KICK RTMPS:", credentials["stream_url"])
 
+    # พารามิเตอร์สไลด์: แต่ละรูปแสดง 10 วินาที (30fps → 300 เฟรม)
+    SLIDE_DURATION = 10   # วินาที
+    FPS = 30
+    FRAMES_PER_SLIDE = SLIDE_DURATION * FPS
+
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel", "debug",
 
-        # Video input: color + drawtext
+        # Input 0: รูปที่ 1 (วน loop)
         "-re",
-        "-f", "lavfi",
-        "-i", "color=c=0x080D0A:s=1280x720:r=30",
-        "-filter_complex",
-        "[0:v]drawtext=fontcolor=white:fontsize=42:text='AI LIVE':x=(w-text_w)/2:y=70[bg]",
+        "-loop", "1",
+        "-i", SLIDE_PATHS[0],
 
-        # Audio input: PCM from Python
+        # Input 1: รูปที่ 2 (วน loop)
+        "-re",
+        "-loop", "1",
+        "-i", SLIDE_PATHS[1],
+
+        # Input 2: เสียง PCM จาก Python
         "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-i", "pipe:0",
 
-        # ----- Mapping (ต้องอยู่หลัง input ทั้งหมด) -----
-        "-map", "[bg]",
-        "-map", "1:a",
+        # Filter complex: ปรับขนาด + loop แต่ละรูป แล้ว concat วน
+        "-filter_complex",
+        (
+            f"[0:v]scale=1280:720:force_original_aspect_ratio=decrease,"
+            f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+            f"loop={FRAMES_PER_SLIDE}:1:0,setpts=PTS[img1];"
+            f"[1:v]scale=1280:720:force_original_aspect_ratio=decrease,"
+            f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+            f"loop={FRAMES_PER_SLIDE}:1:0,setpts=PTS[img2];"
+            f"[img1][img2]concat=n=2:v=1:a=0,loop=-1:size=2[bg]"
+        ),
 
-        # Video encoding
+        # Mapping (ต้องอยู่หลัง input ทั้งหมด)
+        "-map", "[bg]",
+        "-map", "2:a",
+
+        # วิดีโอ encoding
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-tune", "zerolatency",
         "-pix_fmt", "yuv420p",
-        "-r", "30",
-        "-g", "60",
-        "-keyint_min", "60",
+        "-r", str(FPS),
+        "-g", str(FPS * 2),
+        "-keyint_min", str(FPS * 2),
         "-sc_threshold", "0",
         "-b:v", "4500k",
         "-maxrate", "4500k",
         "-bufsize", "9000k",
 
-        # Audio encoding
+        # เสียง encoding
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "48000",
@@ -490,13 +559,13 @@ def start_ffmpeg_stream():
         ffmpeg_last_error = ""
         try:
             with open(FFMPEG_LOG_PATH, "w", encoding="utf-8") as f:
-                f.write("=== FFmpeg session started ===\n")
+                f.write("=== FFmpeg session started (slideshow) ===\n")
                 f.write("Target: " + redact({"target": target})["target"] + "\n")
                 f.write("Stream URL: " + credentials["stream_url"] + "\n")
         except Exception:
             pass
 
-    print("Starting FFmpeg -> KICK (stable background + text)")
+    print("Starting FFmpeg -> KICK with slideshow (2 images, 10s each)")
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
