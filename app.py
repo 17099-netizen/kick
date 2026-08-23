@@ -401,11 +401,15 @@ def audio_to_pcm(audio_bytes):
     return stdout
 
 # ============================================================
-# DOWNLOAD & PREPARE SLIDE IMAGES
+# DOWNLOAD & PREPARE SLIDE IMAGES + PLAYLIST
 # ============================================================
 
+SLIDE_DURATION = 10  # วินาทีต่อรูป
+SLIDE_PLAYLIST_PATH = "/tmp/slides.txt"
+
 def ensure_slide_images():
-    """ดาวน์โหลดและปรับขนาดรูปภาพให้เป็น 1280x720 เพื่อใช้ในสไลด์โชว์"""
+    """ดาวน์โหลดและปรับขนาดรูปภาพให้เป็น 1280x720 เพื่อใช้ในสไลด์โชว์
+    พร้อมเขียน playlist สำหรับ concat demuxer"""
     for idx, url in enumerate(SLIDE_IMAGE_URLS):
         path = SLIDE_PATHS[idx]
         if not os.path.exists(path):
@@ -419,7 +423,7 @@ def ensure_slide_images():
                 # ปรับขนาดและแพดให้เป็น 1280x720
                 subprocess.run(
                     [
-                        "ffmpeg", "-i", temp_path,
+                        "ffmpeg", "-y", "-i", temp_path,
                         "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
                         "-frames:v", "1", path
                     ],
@@ -432,12 +436,21 @@ def ensure_slide_images():
                 print(f"Failed to prepare slide {idx+1}: {e}")
                 # สร้างรูปสีดำทดแทน
                 subprocess.run(
-                    ["ffmpeg", "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=1", "-frames:v", "1", path],
+                    ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=1", "-frames:v", "1", path],
                     check=False,
                 )
 
+    # เขียน playlist สำหรับ concat demuxer
+    # หมายเหตุ: ต้องมีไฟล์สุดท้ายซ้ำโดยไม่ใส่ duration
+    # ตามข้อกำหนดของ ffmpeg concat demuxer เพื่อให้คำนวณความยาวคลิปสุดท้ายถูกต้อง
+    with open(SLIDE_PLAYLIST_PATH, "w", encoding="utf-8") as f:
+        for path in SLIDE_PATHS:
+            f.write(f"file '{path}'\n")
+            f.write(f"duration {SLIDE_DURATION}\n")
+        f.write(f"file '{SLIDE_PATHS[0]}'\n")  # ซ้ำไฟล์แรกปิดท้าย ไม่ใส่ duration
+
 # ============================================================
-# FFMPEG LIVE (สไลด์โชว์ 2 รูป พร้อมเสียง)
+# FFMPEG LIVE (สไลด์โชว์ 2 รูป วนไม่รู้จบ พร้อมเสียง)
 # ============================================================
 
 FFMPEG_LOG_PATH = "/tmp/ffmpeg.log"
@@ -473,7 +486,7 @@ def _drain_ffmpeg_stderr(process):
 def start_ffmpeg_stream():
     global ffmpeg_process
 
-    # ตรวจสอบและเตรียมรูปภาพ
+    # ตรวจสอบและเตรียมรูปภาพ + playlist
     ensure_slide_images()
 
     credentials = get_stream_credentials()
@@ -486,50 +499,37 @@ def start_ffmpeg_stream():
 
     print("KICK RTMPS:", credentials["stream_url"])
 
-    # ตั้งค่าสไลด์: แต่ละรูปแสดง 10 วินาที ที่ 30 fps
-    SLIDE_DURATION = 10   # วินาที
     FPS = 30
-    FRAMES_PER_SLIDE = SLIDE_DURATION * FPS
 
-    # สร้างคำสั่ง FFmpeg โดยเรียงลำดับให้ถูกต้อง
+    # สร้างคำสั่ง FFmpeg โดยใช้ concat demuxer + stream_loop
+    # (แก้จากเดิมที่ใช้ -loop 1 บน image input แบบไม่จำกัดเวลา ร่วมกับ concat filter
+    #  ซึ่งทำให้ concat filter ค้างรอ EOF ของ input แรกตลอดกาล -> ffmpeg ค้าง (deadlock),
+    #  เฟรมถูก drop ไม่รู้จบ, ไม่เคยส่งข้อมูลถึง Kick ทั้งที่ process ยังไม่ตาย)
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel", "debug",
 
-        # --- Input 0: รูปที่ 1 (วน loop) ---
-        "-re",
-        "-loop", "1",
-        "-framerate", str(FPS),
-        "-i", SLIDE_PATHS[0],
+        # --- Input 0: playlist รูปภาพ วนไม่รู้จบด้วย -stream_loop ---
+        "-stream_loop", "-1",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", SLIDE_PLAYLIST_PATH,
 
-        # --- Input 1: รูปที่ 2 (วน loop) ---
-        "-re",
-        "-loop", "1",
-        "-framerate", str(FPS),
-        "-i", SLIDE_PATHS[1],
-
-        # --- Input 2: เสียง PCM จาก Python ---
+        # --- Input 1: เสียง PCM จาก Python ---
         "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-i", "pipe:0",
 
-        # --- Filter complex (สร้างสไลด์โชว์) ---
-        "-filter_complex",
-        (
-            f"[0:v]scale=1280:720:force_original_aspect_ratio=decrease,"
-            f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
-            f"loop={FRAMES_PER_SLIDE}:1:0,setpts=PTS[img1];"
-            f"[1:v]scale=1280:720:force_original_aspect_ratio=decrease,"
-            f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
-            f"loop={FRAMES_PER_SLIDE}:1:0,setpts=PTS[img2];"
-            f"[img1][img2]concat=n=2:v=1:a=0,loop=-1:size=2[bg]"
-        ),
+        # --- Filter: scale/pad + บังคับ fps คงที่ ---
+        "-vf",
+        "scale=1280:720:force_original_aspect_ratio=decrease,"
+        "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=" + str(FPS) + ",format=yuv420p",
 
-        # --- Mapping (ต้องอยู่หลัง input ทั้งหมด) ---
-        "-map", "[bg]",
-        "-map", "2:a",
+        # --- Mapping ---
+        "-map", "0:v",
+        "-map", "1:a",
 
         # --- วิดีโอ encoding ---
         "-c:v", "libx264",
@@ -568,7 +568,7 @@ def start_ffmpeg_stream():
         except Exception:
             pass
 
-    print("Starting FFmpeg -> KICK with slideshow (2 images, 10s each)")
+    print("Starting FFmpeg -> KICK with slideshow (concat demuxer, infinite loop)")
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
